@@ -138,7 +138,7 @@ export function GraphStudio() {
 
   const options = useMemo<PartialOptions>(() => {
     const { forces, nodeSize, linkThickness, textSize, textFadeThreshold, arrows } = state.settings;
-    return { forces, nodeSize, linkThickness, textSize, textFadeThreshold, arrows, mode, theme: { ...theme.graph, fontFamily: resolveVars(theme.graph.fontFamily) } };
+    return { forces, nodeSize, linkThickness, textSize, textFadeThreshold, arrows, mode, theme: theme.graph };
   }, [state.settings, theme, mode]);
 
   const highlighted = useMemo(
@@ -326,10 +326,8 @@ export function GraphStudio() {
     const vars = themeVars(theme);
     root.classList.toggle("dark", !theme.light);
     for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
-    root.style.fontFamily = theme.font ?? "";
     return () => {
       for (const name of Object.keys(vars)) root.style.removeProperty(name);
-      root.style.fontFamily = "";
     };
   }, [theme]);
 
@@ -545,7 +543,7 @@ function highlightRanges(source: string, parsed: ParseResult, selection: Selecti
   );
 }
 
-/** shadcn tokens for the active theme: its accent, and either its chrome colours or the canvas background. */
+/** Points shadcn's tokens at the active theme's canvas background and accent. */
 function themeVars(theme: AppTheme): Record<string, string> {
   const { background, accent } = theme.graph;
   return {
@@ -553,15 +551,7 @@ function themeVars(theme: AppTheme): Record<string, string> {
     "--primary": accent,
     "--primary-foreground": readableOn(accent),
     "--ring": accent,
-    ...theme.chrome,
   };
-}
-
-/** Swaps `var(--x)` for its current value; a canvas cannot resolve CSS variables itself. */
-function resolveVars(value: string): string {
-  if (typeof document === "undefined") return value;
-  const styles = getComputedStyle(document.documentElement);
-  return value.replace(/var\((--[\w-]+)\)/g, (_, name: string) => styles.getPropertyValue(name).trim() || "monospace");
 }
 
 /** Black or white, whichever reads better on `hex`. */

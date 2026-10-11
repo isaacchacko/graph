@@ -145,7 +145,7 @@ function socialNetwork(): string {
     }
     lines.push(`${id(c, 0)} -- ${id((c + 1) % clusters, 0)}`);
   }
-  return `# Random small-world network — hit the template again to reroll\n${lines.join("\n")}\n`;
+  return `# Random small-world network. Load the template again to reroll.\n${lines.join("\n")}\n`;
 }
 
 function tree(): string {

@@ -4,7 +4,9 @@
 
 Live at [graph.isaacchacko.com](https://graph.isaacchacko.com).
 
-Pretty force-directed graphs, quickly. Type a few links or draw them on the canvas, watch them settle, export or share. Built with CS graphs in mind: colour by SCC, component, BFS depth or degree, and lay weighted graphs out by weight.
+I like how Obsidian's graph view looks and moves, so I rebuilt it clean-room, from how it behaves rather than from its code. Then I put an editor on top so I have a quick way to render nice-looking graphs for CS work: strongly connected components, BFS layers, weighted shortest-path graphs, dependency DAGs.
+
+Type links or draw them on the canvas, let the layout settle, then export a PNG or SVG or share a link.
 
 ```
 graph -> renderer, website
@@ -85,7 +87,7 @@ Coming later: settings presets for common views, and more CS tooling such as ste
 
 ## Themes
 
-Hive (the default, after [isaacchacko.com](https://isaacchacko.com)), Vault, Paper, Midnight, Rosé, Forest, Blueprint and Ink.
+Vault (the default, modelled on Obsidian's dark graph view), Paper, Midnight, Rosé, Forest, Blueprint and Ink.
 
 ## Clean-room note
 
