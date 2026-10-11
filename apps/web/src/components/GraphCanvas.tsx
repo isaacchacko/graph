@@ -1,6 +1,6 @@
 "use client";
 
-import { GraphRenderer, type GraphData, type PartialOptions, type RendererEvents } from "@graph/renderer";
+import { GraphRenderer, type GraphData, type PartialOptions, type RendererEvents, type Selection } from "@graph/renderer";
 import { useEffect, useRef } from "react";
 
 type Handlers = { [K in keyof RendererEvents as `on${Capitalize<K>}`]?: (e: RendererEvents[K]) => void };
@@ -9,6 +9,7 @@ interface Props extends Handlers {
   data: GraphData;
   options: PartialOptions;
   highlighted: string[] | null;
+  selection: Selection;
   onReady?: (renderer: GraphRenderer | null) => void;
   className?: string;
 }
@@ -21,10 +22,12 @@ const EVENTS: (keyof RendererEvents)[] = [
   "backgroundDoubleClick",
   "connect",
   "linkClick",
+  "nodeContextMenu",
+  "linkContextMenu",
   "zoom",
 ];
 
-export function GraphCanvas({ data, options, highlighted, onReady, className, ...handlers }: Props) {
+export function GraphCanvas({ data, options, highlighted, selection, onReady, className, ...handlers }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const renderer = useRef<GraphRenderer | null>(null);
   const latest = useRef({ handlers, onReady });
@@ -64,6 +67,10 @@ export function GraphCanvas({ data, options, highlighted, onReady, className, ..
   useEffect(() => {
     renderer.current?.setHighlighted(highlighted);
   }, [highlighted]);
+
+  useEffect(() => {
+    renderer.current?.setSelection(selection);
+  }, [selection]);
 
   return <div ref={container} className={className} />;
 }

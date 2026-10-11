@@ -1,16 +1,19 @@
 "use client";
 
-import type { GraphRenderer, PartialOptions, Point } from "@graph/renderer";
+import type { GraphRenderer, InteractionMode, PartialOptions, Point, Selection } from "@graph/renderer";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { toast } from "sonner";
 import { DRAWER_WIDTH_PX, GraphDrawer, type ExportKind } from "./GraphDrawer";
 import { GraphCanvas } from "./GraphCanvas";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/sonner";
-import { appendLine, renameNode, setLinkWeight, uniqueName } from "@/lib/edit";
-import { formatName, parseGraph } from "@/lib/parse";
+import { appendLine, deleteLink, deleteNode, replaceNameSpans, setLinkWeight } from "@/lib/edit";
+import { fruitName } from "@/lib/fruits";
+import { SESSION_PREFIX, useHistory } from "@/lib/history";
+import { arrowLinks, formatName, parseGraph, type ParseResult, type Span } from "@/lib/parse";
+import { presetById, type PresetId } from "@/lib/presets";
 import { decodeState, decorate, encodeState, matchesQuery, withDefaults, type AppState } from "@/lib/state";
-import { TEMPLATES } from "@/lib/templates";
+import { TEMPLATES, type Template } from "@/lib/templates";
 import { themeById, type AppTheme } from "@/lib/themes";
 
 const STORAGE_KEY = "graph:v1";
@@ -18,34 +21,55 @@ const LINE_HEIGHT_PX = 20;
 
 /** What is being typed into on the canvas: a node's name or a link's weight. */
 type Editing =
-  | { kind: "node"; id: string; text: string; undo: string | null }
+  | {
+      kind: "node";
+      /** The node's name in the source right now. */
+      id: string;
+      original: string;
+      text: string;
+      /** The source when renaming began; every keystroke rewrites `spans` in it afresh. */
+      base: string;
+      spans: Span[];
+      session: string;
+      /** The renderer node being renamed, or null while it is merged into a same-named node. */
+      renderId: string | null;
+      lastPosition: Point | null;
+      changed: boolean;
+    }
   | { kind: "link"; source: string; target: string; text: string };
 
+let sessions = 0;
+
 export function GraphStudio() {
-  const [state, setState] = useState<AppState>(() => withDefaults({ source: TEMPLATES[0].source() }));
+  const history = useHistory<AppState>(() => withDefaults({ source: TEMPLATES[0].source() }));
+  const state = history.value;
   const [loaded, setLoaded] = useState(false);
   const [search, setSearch] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(true);
+  const [mode, setMode] = useState<InteractionMode>("edit");
   const [renderer, setRenderer] = useState<GraphRenderer | null>(null);
   const [spawnPoints, setSpawnPoints] = useState<Record<string, Point>>({});
+  const [selection, setSelection] = useState<Selection>(null);
   const [editing, setEditingState] = useState<Editing | null>(null);
   const editingRef = useRef<Editing | null>(null);
   /** Set when a canvas press only served to finish an edit, so it must not also act. */
   const swallowClick = useRef(false);
-  const overlay = useRef<HTMLInputElement>(null);
+  const overlay = useRef<HTMLElement | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
 
   const setEditing = useCallback((next: Editing | null) => {
     editingRef.current = next;
     setEditingState(next);
   }, []);
 
+  const { reset: resetHistory } = history;
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const hash = window.location.hash.slice(1);
       let initial = hash ? await decodeState(hash) : null;
-      if (hash) history.replaceState(null, "", window.location.pathname);
+      if (hash) window.history.replaceState(null, "", window.location.pathname);
       if (!initial) {
         try {
           const saved = localStorage.getItem(STORAGE_KEY);
@@ -55,14 +79,14 @@ export function GraphStudio() {
         }
       }
       if (cancelled) return;
-      if (initial) setState(initial);
+      if (initial) resetHistory(initial);
       if (window.innerWidth < 768) setDrawerOpen(false);
       setLoaded(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [resetHistory]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -78,8 +102,13 @@ export function GraphStudio() {
 
   const theme = themeById(state.themeId);
   const parsed = useMemo(() => parseGraph(state.source), [state.source]);
+
   const data = useMemo(() => {
-    const decorated = decorate(parsed.data, state.groups, state.settings.showOrphans);
+    const decorated = decorate(parsed.data, state.groups, state.settings, {
+      categories: theme.palette,
+      low: theme.graph.node,
+      high: theme.graph.accent,
+    });
     // Whatever is being typed into is drawn by the input on top, not the canvas.
     const nodes = decorated.nodes.map((n) => ({
       ...n,
@@ -90,71 +119,129 @@ export function GraphStudio() {
       editing?.kind === "link" && editing.source === l.source && editing.target === l.target ? { ...l, label: undefined } : l,
     );
     return { nodes, links };
-  }, [parsed, state.groups, state.settings.showOrphans, spawnPoints, editing]);
+  }, [parsed, state.groups, state.settings, theme, spawnPoints, editing]);
+
+  // A selection can outlive its target (undo, edits in the source): ignore it then.
+  const liveSelection = useMemo<Selection>(() => {
+    if (selection?.kind === "node") return parsed.data.nodes.some((n) => n.id === selection.id) ? selection : null;
+    if (selection?.kind === "link") return parsed.data.links.some((l) => l.source === selection.source && l.target === selection.target) ? selection : null;
+    return null;
+  }, [selection, parsed]);
+
+  const highlights = useMemo(() => highlightRanges(state.source, parsed, liveSelection), [state.source, parsed, liveSelection]);
 
   const options = useMemo<PartialOptions>(() => {
     const { forces, nodeSize, linkThickness, textSize, textFadeThreshold, arrows } = state.settings;
-    return { forces, nodeSize, linkThickness, textSize, textFadeThreshold, arrows, theme: theme.graph };
-  }, [state.settings, theme]);
+    return { forces, nodeSize, linkThickness, textSize, textFadeThreshold, arrows, mode, theme: theme.graph };
+  }, [state.settings, theme, mode]);
 
   const highlighted = useMemo(
     () => (search.trim() ? data.nodes.filter((n) => matchesQuery(n.label ?? n.id, search)).map((n) => n.id) : null),
     [data, search],
   );
 
-  const update = useCallback((patch: Partial<AppState>) => setState((s) => ({ ...s, ...patch })), []);
-  const editSource = useCallback((edit: (source: string) => string) => setState((s) => ({ ...s, source: edit(s.source) })), []);
+  const { set: record } = history;
+  const update = useCallback((patch: Partial<AppState>, merge?: string) => record((s) => ({ ...s, ...patch }), merge), [record]);
+  const editSource = useCallback((edit: (source: string) => string) => record((s) => ({ ...s, source: edit(s.source) })), [record]);
 
-  // ── Canvas editing ──────────────────────────────────────────────────
+  // ── Renaming and weighing ───────────────────────────────────────────
 
-  const commitEdit = useCallback(() => {
-    const current = editingRef.current;
-    if (!current) return;
-    setEditing(null);
-    const text = current.text.trim();
-    if (current.kind === "link") {
-      editSource((src) => setLinkWeight(src, parseGraph(src), current.source, current.target, text));
-      return;
-    }
-    if (!text || text === current.id) return;
-    renderer?.renameNode(current.id, text);
-    setSpawnPoints((points) => {
-      const { [current.id]: at, ...rest } = points;
-      return at ? { ...rest, [text]: at } : rest;
-    });
-    editSource((src) => renameNode(src, parseGraph(src), current.id, text));
-  }, [editSource, renderer, setEditing]);
-
-  const cancelEdit = useCallback(() => {
-    const current = editingRef.current;
-    setEditing(null);
-    // Escaping a node you just made un-makes it.
-    if (current?.kind === "node" && current.undo !== null) update({ source: current.undo });
-  }, [setEditing, update]);
-
-  const createNodeAt = (world: Point) => {
-    const name = uniqueName(parsed.data.nodes.map((n) => n.id));
-    setSpawnPoints((points) => ({ ...points, [name]: world }));
-    if (!state.settings.showOrphans) update({ settings: { ...state.settings, showOrphans: true } });
-    editSource((src) => appendLine(src, formatName(name)));
-    setEditing({ kind: "node", id: name, text: "", undo: state.source });
+  /** Renames the node being edited to `text`, live, by rewriting its spans in the pre-edit source. */
+  const renameTo = (ed: Extract<Editing, { kind: "node" }>, text: string): Editing => {
+    const target = text.trim() || ed.original;
+    if (target === ed.id) return { ...ed, text };
+    const collides = parsed.data.nodes.some((n) => n.id === target && n.id !== ed.id);
+    const position = (ed.renderId && renderer?.getNodePosition(ed.renderId)) || ed.lastPosition;
+    if (!collides && ed.renderId) renderer?.renameNode(ed.renderId, target);
+    if (position) setSpawnPoints((points) => ({ ...points, [target]: position }));
+    record((s) => ({ ...s, source: replaceNameSpans(ed.base, ed.spans, target) }), ed.session);
+    setSelection({ kind: "node", id: target });
+    return { ...ed, id: target, text, renderId: collides ? null : target, lastPosition: position, changed: true };
   };
 
-  const editKey = editing ? (editing.kind === "node" ? `n:${editing.id}` : `l:${editing.source}\u0000${editing.target}`) : null;
+  const startEdit = (sel: NonNullable<Selection>, text: string | null) => {
+    if (sel.kind === "link") {
+      const label = parsed.data.links.find((l) => l.source === sel.source && l.target === sel.target)?.label ?? "";
+      setEditing({ kind: "link", source: sel.source, target: sel.target, text: text ?? label });
+      return;
+    }
+    const ed: Editing = {
+      kind: "node",
+      id: sel.id,
+      original: sel.id,
+      text: sel.id,
+      base: state.source,
+      spans: parsed.names.get(sel.id) ?? [],
+      session: `${SESSION_PREFIX}rename-${++sessions}`,
+      renderId: sel.id,
+      lastPosition: null,
+      changed: false,
+    };
+    setEditing(text === null ? ed : renameTo(ed, text));
+  };
 
-  // Keep the input pinned to the moving node or link midpoint.
+  const commitEdit = () => {
+    const ed = editingRef.current;
+    if (!ed) return;
+    setEditing(null);
+    if (ed.kind === "link") {
+      editSource((src) => setLinkWeight(src, parseGraph(src), ed.source, ed.target, ed.text.trim()));
+      return;
+    }
+    // An emptied name falls back to the next free fruit.
+    if (!ed.text.trim()) renameTo(ed, fruitName(parsed.data.nodes.map((n) => n.id).filter((id) => id !== ed.id)));
+  };
+
+  const cancelEdit = () => {
+    const ed = editingRef.current;
+    setEditing(null);
+    if (ed?.kind !== "node" || !ed.changed) return;
+    history.discard();
+    if (ed.renderId && ed.renderId !== ed.original) renderer?.renameNode(ed.renderId, ed.original);
+    setSelection({ kind: "node", id: ed.original });
+  };
+
+  // ── Creating and deleting ───────────────────────────────────────────
+
+  const createNodeAt = (world: Point) => {
+    const name = fruitName(parsed.data.nodes.map((n) => n.id));
+    setSpawnPoints((points) => ({ ...points, [name]: world }));
+    record((s) => ({
+      ...s,
+      source: appendLine(s.source, formatName(name)),
+      settings: s.settings.showOrphans ? s.settings : { ...s.settings, showOrphans: true },
+    }));
+    setSelection({ kind: "node", id: name });
+  };
+
+  const remove = (target: NonNullable<Selection>) => {
+    if (target.kind === "node") editSource((src) => deleteNode(src, parseGraph(src), target.id));
+    else editSource((src) => deleteLink(src, parseGraph(src), target.source, target.target));
+    setSelection(null);
+  };
+
+  // ── Overlay: the input being typed into, or a hint beside the selection ──
+
+  const anchor = editing
+    ? editing.kind === "node"
+      ? ({ kind: "node", id: editing.id } as const)
+      : ({ kind: "link", source: editing.source, target: editing.target } as const)
+    : mode === "edit"
+      ? liveSelection
+      : null;
+  const anchorKey = anchor ? (anchor.kind === "node" ? `n:${anchor.id}` : `l:${anchor.source}\u0000${anchor.target}`) : null;
+
   useEffect(() => {
-    if (!renderer || !editKey) return;
+    if (!renderer || !anchor) return;
     let raf = 0;
     const follow = () => {
-      const current = editingRef.current;
       const el = overlay.current;
-      if (current && el) {
-        if (current.kind === "node") {
-          const box = renderer.getNodeScreenBox(current.id);
+      if (el && anchor) {
+        if (anchor.kind === "node") {
+          const box = renderer.getNodeScreenBox(anchor.id);
           if (box) el.style.transform = `translate(${box.x}px, ${box.y + box.r + 4}px) translateX(-50%)`;
         } else {
-          const mid = renderer.getLinkScreenMidpoint(current.source, current.target);
+          const mid = renderer.getLinkScreenMidpoint(anchor.source, anchor.target);
           if (mid) el.style.transform = `translate(${mid.x}px, ${mid.y}px) translate(-50%, -50%)`;
         }
       }
@@ -162,20 +249,21 @@ export function GraphStudio() {
     };
     follow();
     return () => cancelAnimationFrame(raf);
-  }, [renderer, editKey]);
+    // anchorKey identifies the anchor; the object itself is rebuilt every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderer, anchorKey, editing !== null]);
 
-  const revealInSource = useCallback((id: string) => {
+  // Bring the first highlighted mention into view when the selection changes.
+  const firstHighlight = highlights[0]?.[0];
+  const selectionKey = liveSelection ? JSON.stringify(liveSelection) : null;
+  useEffect(() => {
     const el = textarea.current;
-    if (!el) return;
-    const lines = el.value.split("\n");
-    const needles = [formatName(id), id];
-    const index = lines.findIndex((l) => !l.trim().startsWith("#") && needles.some((n) => l.includes(n)));
-    if (index < 0) return;
-    const start = lines.slice(0, index).reduce((sum, l) => sum + l.length + 1, 0);
-    el.focus({ preventScroll: true });
-    el.setSelectionRange(start, start + lines[index].length);
-    el.scrollTop = Math.max(0, index * LINE_HEIGHT_PX - el.clientHeight / 3);
-  }, []);
+    if (!el || firstHighlight === undefined || !selectionKey) return;
+    const line = el.value.slice(0, firstHighlight).split("\n").length - 1;
+    el.scrollTop = Math.max(0, line * LINE_HEIGHT_PX - el.clientHeight / 3);
+    // Only when a different thing gets selected, not on every edit of it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionKey]);
 
   // ── Drawer actions ──────────────────────────────────────────────────
 
@@ -208,6 +296,15 @@ export function GraphStudio() {
     }
   };
 
+  const applyTemplate = (template: Template) =>
+    record((s) => ({
+      ...s,
+      source: template.source(),
+      settings: template.preset ? { ...presetById(template.preset).settings, showOrphans: s.settings.showOrphans } : s.settings,
+    }));
+
+  const applyPreset = (id: PresetId) => record((s) => ({ ...s, settings: { ...presetById(id).settings, showOrphans: s.settings.showOrphans } }));
+
   const zoom = useCallback(
     (action: "in" | "out" | "fit" | "shake") => {
       if (action === "in") renderer?.zoomBy(1.4);
@@ -226,20 +323,52 @@ export function GraphStudio() {
     return () => window.removeEventListener("resize", inset);
   }, [renderer, drawerOpen]);
 
+  // ── Keyboard ────────────────────────────────────────────────────────
+
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+    onKey.current = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest("input, textarea, select, [role=combobox]") || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "f") zoom("fit");
-      else if (e.key === "e") setDrawerOpen((v) => !v);
-      else if (e.key === "=" || e.key === "+") zoom("in");
-      else if (e.key === "-") zoom("out");
+      const mod = e.metaKey || e.ctrlKey;
+      const key = e.key.toLowerCase();
+      // Plain inputs keep their own undo; the source text and the canvas share the graph's.
+      if (mod && (key === "z" || key === "y") && target.tagName !== "INPUT") {
+        e.preventDefault();
+        if (key === "y" || e.shiftKey) history.redo();
+        else history.undo();
+        return;
+      }
+      if (target.closest("input, textarea, select, [role=combobox]") || mod || e.altKey) return;
+
+      // With something selected in edit mode, typing edits it.
+      if (mode === "edit" && liveSelection) {
+        if (e.key === "Backspace" || e.key === "Delete") remove(liveSelection);
+        else if (e.key === "Enter" || e.key === "F2") startEdit(liveSelection, null);
+        else if (e.key === "Escape") setSelection(null);
+        else if (e.key.length === 1) startEdit(liveSelection, e.key);
+        else return;
+        e.preventDefault();
+        return;
+      }
+
+      if (key === "v") setMode("select");
+      else if (key === "p") setMode("edit");
+      else if (key === "e") setDrawerOpen((v) => !v);
+      else if (key === "f") zoom("fit");
+      else if (key === "=" || key === "+") zoom("in");
+      else if (key === "-") zoom("out");
+      else if (e.key === "Escape") setSelection(null);
       else return;
       e.preventDefault();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [zoom]);
+  });
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => onKey.current(e);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  const editingText = editing?.text ?? "";
 
   return (
     <div className={`fixed inset-0 overflow-hidden text-foreground ${theme.light ? "" : "dark"}`} style={themeVars(theme)}>
@@ -256,51 +385,93 @@ export function GraphStudio() {
             data={data}
             options={options}
             highlighted={highlighted}
+            selection={liveSelection}
             onReady={setRenderer}
-            onConnect={({ source, target }) => editSource((src) => appendLine(src, `${formatName(source)} -> ${formatName(target)}`))}
-            onBackgroundClick={({ world }) => !swallowClick.current && createNodeAt(world)}
-            onLinkClick={({ source, target }) => {
-              if (swallowClick.current) return;
-              const label = data.links.find((l) => l.source === source && l.target === target)?.label ?? "";
-              setEditing({ kind: "link", source, target, text: label });
+            onConnect={({ source, target }) => {
+              editSource((src) => appendLine(src, `${formatName(source)} -> ${formatName(target)}`));
+              setSelection({ kind: "link", source, target });
             }}
-            onNodeClick={({ id }) => !swallowClick.current && drawerOpen && revealInSource(id)}
+            onBackgroundClick={({ world }) => {
+              if (swallowClick.current) return;
+              if (mode === "edit") createNodeAt(world);
+              else setSelection(null);
+            }}
+            onLinkClick={({ source, target }) => !swallowClick.current && setSelection({ kind: "link", source, target })}
+            onNodeClick={({ id }) => !swallowClick.current && setSelection({ kind: "node", id })}
+            onNodeContextMenu={({ id, event }) => {
+              if (mode !== "edit") return;
+              event.preventDefault();
+              remove({ kind: "node", id });
+            }}
+            onLinkContextMenu={({ source, target, event }) => {
+              if (mode !== "edit") return;
+              event.preventDefault();
+              remove({ kind: "link", source, target });
+            }}
           />
         )}
       </div>
 
       {loaded && data.nodes.length === 0 && !editing && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-          Click anywhere to add a node.
+          {mode === "edit" ? "Click anywhere to add a node." : "Switch to edit mode (P) to add nodes."}
         </div>
       )}
 
-      {editing && (
+      {editing ? (
         <Input
-          key={editKey}
-          ref={overlay}
+          key={anchorKey}
+          ref={(el) => {
+            overlay.current = el;
+          }}
           autoFocus
           value={editing.text}
-          placeholder={editing.kind === "node" ? editing.id : "weight"}
-          onChange={(e) => setEditing({ ...editing, text: e.target.value })}
+          placeholder={editing.kind === "node" ? "fruit name" : "weight"}
+          onChange={(e) => {
+            const ed = editingRef.current;
+            if (!ed) return;
+            setEditing(ed.kind === "node" ? renameTo(ed, e.target.value) : { ...ed, text: e.target.value });
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter") commitEdit();
             else if (e.key === "Escape") cancelEdit();
           }}
           onBlur={commitEdit}
-          style={{ width: Math.max(96, (editing.text || (editing.kind === "node" ? editing.id : "weight")).length * 8 + 28) }}
+          style={{ width: Math.max(96, (editingText || "fruit name").length * 8 + 28) }}
           className="absolute top-0 left-0 z-30 h-7 border-primary bg-background px-2 text-center text-xs shadow-lg"
         />
+      ) : (
+        anchor && (
+          <div
+            key={anchorKey}
+            ref={(el) => {
+              overlay.current = el;
+            }}
+            className={`pointer-events-none absolute top-0 left-0 z-30 border bg-background/90 px-1.5 py-0.5 text-[10px] whitespace-nowrap text-muted-foreground ${
+              anchor.kind === "node" ? "mt-5" : "mt-6"
+            }`}
+          >
+            {anchor.kind === "node" ? "type to rename · ⌫ delete" : "type a weight · ⌫ delete"}
+          </div>
+        )
       )}
 
       <GraphDrawer
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
+        mode={mode}
+        onMode={setMode}
+        onUndo={history.undo}
+        onRedo={history.redo}
+        canUndo={history.canUndo}
+        canRedo={history.canRedo}
         state={state}
         update={update}
+        onTemplate={applyTemplate}
+        onPreset={applyPreset}
         theme={theme}
         errors={parsed.errors}
-        stats={{ nodes: data.nodes.length, links: data.links.length }}
+        highlights={highlights}
         search={search}
         onSearch={setSearch}
         textareaRef={textarea}
@@ -312,6 +483,26 @@ export function GraphStudio() {
 
       <Toaster theme={theme.light ? "light" : "dark"} position="bottom-right" />
     </div>
+  );
+}
+
+/** Character ranges in the source to mark for the current selection. */
+function highlightRanges(source: string, parsed: ParseResult, selection: Selection): [number, number][] {
+  if (!selection) return [];
+  const lineStarts = [0];
+  for (let i = 0; i < source.length; i++) if (source[i] === "\n") lineStarts.push(i + 1);
+  const toRange = (s: Span): [number, number] => [lineStarts[s.line] + s.start, lineStarts[s.line] + s.end];
+
+  if (selection.kind === "node") return (parsed.names.get(selection.id) ?? []).map(toRange);
+  // Every arrow that makes this link.
+  return parsed.statements.flatMap((st) =>
+    st.arrows
+      .filter((arrow, k) =>
+        st.groups[k].some((a) =>
+          st.groups[k + 1].some((b) => arrowLinks(arrow, a.name, b.name).some(([s, t]) => s === selection.source && t === selection.target)),
+        ),
+      )
+      .map(toRange),
   );
 }
 

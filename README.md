@@ -1,6 +1,8 @@
+![graph](docs/banner.png)
+
 # graph
 
-Pretty force-directed graphs, quickly. Type a few links, watch them settle, export or share.
+Pretty force-directed graphs, quickly. Type a few links or draw them on the canvas, watch them settle, export or share. Built for CS: strongly connected components, BFS layers and weighted shortest-path graphs are a preset away.
 
 ```
 graph -> renderer, website
@@ -56,11 +58,35 @@ graph.on("nodeClick", ({ id }) => console.log(id));
 
 ## Editing on the canvas
 
-The text is the source of truth, and canvas edits rewrite it in place:
+The text is the source of truth, and canvas edits rewrite it in place. The toolbar beside the drawer toggle switches modes:
 
-- **Click empty canvas**: a node appears immediately with its name field focused. Type, then press Enter or click away. Escape un-makes it.
-- **Drag from a node to another**: appends `A -> B`.
-- **Click a link**: edit its weight. Its arrow is rewritten in place (`A -> B` becomes `A -(5)-> B`). If the arrow is shared by a fan-out, the link is restated on its own line.
+| Mode | Key | Click empty space | Drag a node | Other |
+| --- | --- | --- | --- | --- |
+| Select (pointer) | `V` | clear the selection | move it | drag the background to pan |
+| Edit (pencil) | `P` | new node, named after the next free fruit (Apple, Banana, … Zucchini, then Apple2) | draw an edge to another node (red until it is over one) | double-click and hold a node to move it |
+
+In edit mode, click a node or edge to select it. Every place it is written in the source is highlighted. Then:
+
+- **Type** to rename a node (every mention changes as you type) or to weigh an edge (`A -> B` becomes `A -(5)-> B`). `Enter` edits the current value, `Escape` backs out, and an emptied name falls back to the next free fruit.
+- **`⌫` or right-click** deletes it. Deleting a node removes its edges but not its neighbours. Deleting an edge keeps both nodes, and cuts chains and fan-outs apart in the source as needed.
+- **`⌘Z` / `⇧⌘Z`** (or Ctrl) undo and redo every change, from canvas edits to slider drags.
+
+## Presets
+
+Each preset sets the full settings bundle at once. The CS ones also turn on a *colour by* analysis:
+
+| Preset | What it shows |
+| --- | --- |
+| Strongly connected components | arrows, Tarjan SCCs coloured, nodes on no cycle left plain |
+| Connected components | weakly connected components coloured and pushed apart |
+| Edge relaxation | weighted edges relax toward lengths proportional to their weights (shortest-path intuition) |
+| BFS layers | each hop distance from the first node in its own colour |
+| DAG / dependency graph | arrows on a spread-out layout for build graphs and prerequisites |
+| Degree centrality | colour ramps with degree |
+| Fruchterman–Reingold | the textbook spring embedder |
+| Obsidian | the classic look |
+
+The CS templates (shortest paths, SCCs, course prerequisites, binary tree, Petersen, grid, K7) load with the matching preset.
 
 ## Clean-room note
 

@@ -32,6 +32,7 @@ export const DEFAULT_OPTIONS: RendererOptions = {
   linkThickness: 1,
   textSize: 1,
   arrows: false,
+  mode: "edit",
   textFadeThreshold: 0,
   dimOpacity: 0.15,
 };

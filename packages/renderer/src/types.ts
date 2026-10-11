@@ -15,7 +15,17 @@ export interface GraphLinkInput {
   target: string;
   /** Text drawn at the link's midpoint, e.g. a weight. */
   label?: string;
+  /** Multiplies the resting length of this link. */
+  length?: number;
 }
+
+export type Selection = { kind: "node"; id: string } | { kind: "link"; source: string; target: string } | null;
+
+/**
+ * - `select`: dragging a node moves it, dragging the background pans.
+ * - `edit`: dragging from a node draws a link; double-click and hold a node to move it.
+ */
+export type InteractionMode = "select" | "edit";
 
 export interface GraphData {
   nodes: GraphNodeInput[];
@@ -54,6 +64,7 @@ export interface RendererOptions {
   /** Label size multiplier. */
   textSize: number;
   arrows: boolean;
+  mode: InteractionMode;
   /**
    * Zoom level (log2) below which labels disappear. Higher hides labels
    * until you zoom further in.
@@ -77,5 +88,7 @@ export interface RendererEvents {
   /** Fired when the user drags from one node and releases on another. */
   connect: { source: string; target: string };
   linkClick: { source: string; target: string; event: PointerEvent };
+  nodeContextMenu: { id: string; event: MouseEvent };
+  linkContextMenu: { source: string; target: string; event: MouseEvent };
   zoom: { scale: number };
 }

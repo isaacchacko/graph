@@ -43,17 +43,30 @@ export interface ParseResult {
    * pair of nodes and can be rewritten without touching other links.
    */
   arrows: Map<string, ArrowSpan | null>;
+  statements: Statement[];
 }
 
-interface NodeRef {
+export interface NodeRef {
   name: string;
+  /** Where the name itself is written (quotes included, props excluded). */
   span: Span;
+  /** The whole reference as written, props included. */
+  raw: string;
   color?: string;
   size?: number;
 }
 
-interface Arrow extends ArrowSpan {
+export interface Arrow extends ArrowSpan {
+  text: string;
   weight?: string;
+}
+
+/** One line's chain: `groups[k]` is joined to `groups[k + 1]` by `arrows[k]`. */
+export interface Statement {
+  line: number;
+  indent: string;
+  groups: NodeRef[][];
+  arrows: Arrow[];
 }
 
 const ARROW = /<?-\(([^)]*)\)->?|<->|->|<-|--/y;
@@ -62,11 +75,18 @@ export function linkKey(source: string, target: string): string {
   return `${source}\u0000${target}`;
 }
 
+/** The links one arrow makes between one pair, as `[source, target]`. */
+export function arrowLinks(arrow: ArrowSpan, a: string, b: string): [string, string][] {
+  if (arrow.left && arrow.right) return [[a, b], [b, a]];
+  return arrow.left ? [[b, a]] : [[a, b]];
+}
+
 export function parseGraph(source: string): ParseResult {
   const nodes = new Map<string, GraphNodeInput>();
   const links = new Map<string, GraphLinkInput>();
   const names = new Map<string, Span[]>();
   const arrows = new Map<string, ArrowSpan | null>();
+  const statements: Statement[] = [];
   const errors: ParseError[] = [];
 
   const touch = (ref: NodeRef) => {
@@ -92,14 +112,13 @@ export function parseGraph(source: string): ParseResult {
     if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) return;
     try {
       const { groups, arrows: lineArrows } = parseStatement(raw, line);
+      statements.push({ line, indent: raw.slice(0, raw.length - raw.trimStart().length), groups, arrows: lineArrows });
       groups.forEach((group) => group.forEach(touch));
       lineArrows.forEach((arrow, k) => {
         const unique = groups[k].length === 1 && groups[k + 1].length === 1;
         for (const a of groups[k]) {
           for (const b of groups[k + 1]) {
-            if (arrow.left && !arrow.right) link(b, a, arrow, unique);
-            else link(a, b, arrow, unique);
-            if (arrow.left && arrow.right) link(b, a, arrow, unique);
+            for (const [from, to] of arrowLinks(arrow, a.name, b.name)) link(byName(from, a, b), byName(to, a, b), arrow, unique);
           }
         }
       });
@@ -108,7 +127,11 @@ export function parseGraph(source: string): ParseResult {
     }
   });
 
-  return { data: { nodes: [...nodes.values()], links: [...links.values()] }, errors, names, arrows };
+  return { data: { nodes: [...nodes.values()], links: [...links.values()] }, errors, names, arrows, statements };
+}
+
+function byName(name: string, a: NodeRef, b: NodeRef): NodeRef {
+  return a.name === name ? a : b;
 }
 
 function parseStatement(raw: string, line: number): { groups: NodeRef[][]; arrows: Arrow[] } {
@@ -123,7 +146,15 @@ function parseStatement(raw: string, line: number): { groups: NodeRef[][]; arrow
     segments.push({ start: segmentStart, end: i });
     const text = m[0];
     const weight = m[1]?.trim();
-    arrows.push({ line, start: i, end: i + text.length, left: text.startsWith("<"), right: text.endsWith(">"), weight: weight || undefined });
+    arrows.push({
+      line,
+      start: i,
+      end: i + text.length,
+      left: text.startsWith("<"),
+      right: text.endsWith(">"),
+      text,
+      weight: weight || undefined,
+    });
     segmentStart = i + text.length;
     return text.length;
   });
@@ -184,7 +215,7 @@ function pushRef(refs: NodeRef[], raw: string, start: number, end: number, line:
   if (name.startsWith('"') && name.endsWith('"') && name.length >= 2) name = name.slice(1, -1);
   if (!name) throw new Error("Empty node name");
 
-  const ref: NodeRef = { name, span: { line, start: bodyStart, end: bodyStart + nameText.length } };
+  const ref: NodeRef = { name, raw: body, span: { line, start: bodyStart, end: bodyStart + nameText.length } };
   for (const token of props.split(/[\s,]+/).filter(Boolean)) {
     const size = /^(\d*\.?\d+)x?$/.exec(token);
     if (size) ref.size = Math.min(20, Math.max(0.1, Number(size[1])));

@@ -15,6 +15,8 @@ export interface SimNode {
 export interface SimLink<N extends SimNode = SimNode> {
   source: N;
   target: N;
+  /** Multiplies the resting length. */
+  length?: number;
 }
 
 const ALPHA_MIN = 0.002;
@@ -79,7 +81,7 @@ export class ForceSimulation<N extends SimNode = SimNode> {
   private applyLinks(): void {
     const { linkForce, linkDistance } = this.forces;
     if (linkForce <= 0) return;
-    for (const { source: s, target: t } of this.links) {
+    for (const { source: s, target: t, length: scale = 1 } of this.links) {
       if (s === t) continue;
       let dx = t.x + t.vx - s.x - s.vx;
       let dy = t.y + t.vy - s.y - s.vy;
@@ -90,7 +92,7 @@ export class ForceSimulation<N extends SimNode = SimNode> {
       const length = Math.hypot(dx, dy);
       // Hubs would otherwise be yanked around by every spoke at once.
       const stiffness = linkForce / Math.min(s.degree, t.degree);
-      const k = ((length - linkDistance) / length) * this.alpha * stiffness;
+      const k = ((length - linkDistance * scale) / length) * this.alpha * stiffness;
       dx *= k;
       dy *= k;
       const targetShare = s.degree / (s.degree + t.degree);

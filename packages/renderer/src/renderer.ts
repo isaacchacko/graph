@@ -2,7 +2,7 @@ import { DEFAULT_OPTIONS } from "./defaults";
 import { drawScene, nodeRadius, type Camera, type SceneLink, type SceneNode } from "./scene";
 import { ForceSimulation } from "./simulation";
 import { buildSvg, type ExportOptions } from "./export";
-import type { GraphData, Point, RendererEvents, RendererOptions } from "./types";
+import type { GraphData, Point, RendererEvents, RendererOptions, Selection } from "./types";
 
 type Listener<K extends keyof RendererEvents> = (payload: RendererEvents[K]) => void;
 type ListenerMap = { [K in keyof RendererEvents]?: Set<Listener<K>> };
@@ -73,6 +73,7 @@ export class GraphRenderer {
   private hoveredLink: string | null = null;
   private lastNodeClick: { node: SceneNode; time: number; x: number; y: number } | null = null;
   private highlighted: Set<string> | null = null;
+  private selection: Selection = null;
   private gesture: Gesture | null = null;
   private pointers = new Map<number, Point>();
   private listeners: ListenerMap = {};
@@ -109,6 +110,7 @@ export class GraphRenderer {
     this.canvas.addEventListener("pointerleave", this.onPointerLeave);
     this.canvas.addEventListener("wheel", this.onWheel, { passive: false });
     this.canvas.addEventListener("dblclick", this.onDoubleClick);
+    this.canvas.addEventListener("contextmenu", this.onContextMenu);
   }
 
   // ── Public API ────────────────────────────────────────────────────────
@@ -135,6 +137,12 @@ export class GraphRenderer {
   setHighlighted(ids: Iterable<string> | null): void {
     const next = ids ? new Set(ids) : null;
     this.highlighted = next && next.size > 0 ? next : null;
+    this.schedule();
+  }
+
+  /** Marks a node (ringed) or link (accented) as selected. */
+  setSelection(selection: Selection): void {
+    this.selection = selection;
     this.schedule();
   }
 
@@ -274,6 +282,7 @@ export class GraphRenderer {
     this.canvas.removeEventListener("pointerleave", this.onPointerLeave);
     this.canvas.removeEventListener("wheel", this.onWheel);
     this.canvas.removeEventListener("dblclick", this.onDoubleClick);
+    this.canvas.removeEventListener("contextmenu", this.onContextMenu);
     this.canvas.remove();
     this.listeners = {};
   }
@@ -330,7 +339,14 @@ export class GraphRenderer {
       if (seen.has(key)) continue;
       seen.add(key);
       const old = previousLinks.get(key);
-      links.push({ source, target, label: input.label ?? "", fade: old?.fade ?? 1, accent: old?.accent ?? 0 });
+      links.push({
+        source,
+        target,
+        label: input.label ?? "",
+        length: input.length ?? 1,
+        fade: old?.fade ?? 1,
+        accent: old?.accent ?? 0,
+      });
     }
 
     const neighbors = new Map<SceneNode, Set<SceneNode>>(nodes.map((n) => [n, new Set()]));
@@ -349,7 +365,7 @@ export class GraphRenderer {
       fresh.length > 0 ||
       nodes.length !== previous.size ||
       links.length !== previousLinks.size ||
-      links.some((l) => !previousLinks.has(linkKey(l.source.id, l.target.id)));
+      links.some((l) => previousLinks.get(linkKey(l.source.id, l.target.id))?.length !== l.length);
 
     this.placeNewNodes(fresh, startingOver);
     this.sim.setGraph(nodes, links);
@@ -464,6 +480,7 @@ export class GraphRenderer {
       { camera: this.camera, width: this.width, height: this.height, pixelRatio: this.pixelRatio },
       {
         connectPreview: this.connectPreview(),
+        selectedNode: this.selection?.kind === "node" ? (this.nodeById.get(this.selection.id) ?? null) : null,
       },
     );
   }
@@ -481,6 +498,9 @@ export class GraphRenderer {
     const near = focus ? this.neighbors.get(focus)! : null;
     const highlighted = focus ? null : this.highlighted;
     const dim = this.options.dimOpacity;
+    const sel = this.selection;
+    const selectedNode = sel?.kind === "node" ? sel.id : null;
+    const selectedLink = sel?.kind === "link" ? linkKey(sel.source, sel.target) : null;
     const fadeStep = 1 - Math.exp(-dt / FADE_TIME_MS);
     const appearStep = dt / APPEAR_TIME_MS;
     let busy = false;
@@ -502,6 +522,7 @@ export class GraphRenderer {
         accent = hit ? 1 : 0;
         emphasis = hit ? 1 : 0;
       }
+      if (n.id === selectedNode) emphasis = 1;
       n.fade = approach(n.fade, fade, fadeStep);
       n.accent = approach(n.accent, accent, fadeStep);
       n.emphasis = approach(n.emphasis, emphasis, fadeStep);
@@ -520,6 +541,10 @@ export class GraphRenderer {
         const touches = highlighted.has(l.source.id) && highlighted.has(l.target.id);
         fade = touches ? 1 : dim;
       } else if (this.hoveredLink === linkKey(l.source.id, l.target.id)) {
+        accent = 1;
+      }
+      if (selectedLink === linkKey(l.source.id, l.target.id)) {
+        fade = 1;
         accent = 1;
       }
       l.fade = approach(l.fade, fade, fadeStep);
@@ -671,7 +696,7 @@ export class GraphRenderer {
       e.timeStamp - last.time < DOUBLE_PRESS_MS &&
       Math.hypot(last.x - p.x, last.y - p.y) < CLICK_SLOP * 3;
 
-    if (node && doublePress) {
+    if (node && (doublePress || this.options.mode === "select")) {
       node.fx = node.x;
       node.fy = node.y;
       this.gesture = { kind: "drag", pointerId: e.pointerId, node, startX: p.x, startY: p.y, moved: false };
@@ -703,7 +728,7 @@ export class GraphRenderer {
       const link = node ? null : this.linkAt(p);
       this.setHovered(node);
       this.setHoveredLink(link);
-      this.canvas.style.cursor = node || link ? "pointer" : "default";
+      this.canvas.style.cursor = node && this.options.mode === "select" ? "grab" : node || link ? "pointer" : "default";
       return;
     }
 
@@ -778,6 +803,7 @@ export class GraphRenderer {
 
     if (g.kind === "drag") {
       this.releaseDrag(g.node);
+      if (!g.moved && this.options.mode === "select") this.emit("nodeClick", { id: g.node.id, event: e });
     } else if (g.kind === "pan" && !g.moved) {
       if (g.link) this.emit("linkClick", { source: g.link.source.id, target: g.link.target.id, event: e });
       else this.emit("backgroundClick", { world: this.screenToWorld(p), event: e });
@@ -828,6 +854,18 @@ export class GraphRenderer {
     const node = this.nodeAt(p);
     if (node) this.emit("nodeDoubleClick", { id: node.id, event: e });
     else this.emit("backgroundDoubleClick", { world: this.screenToWorld(p), event: e });
+  };
+
+  /** Listeners may call `event.preventDefault()` to suppress the browser menu. */
+  private onContextMenu = (e: MouseEvent): void => {
+    const p = this.localPoint(e);
+    const node = this.nodeAt(p);
+    if (node) {
+      this.emit("nodeContextMenu", { id: node.id, event: e });
+      return;
+    }
+    const link = this.linkAt(p);
+    if (link) this.emit("linkContextMenu", { source: link.source.id, target: link.target.id, event: e });
   };
 
   private zoomAround(screen: Point, factor: number): void {

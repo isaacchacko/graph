@@ -10,5 +10,7 @@ export type {
   Point,
   RendererEvents,
   RendererOptions,
+  InteractionMode,
+  Selection,
   Theme,
 } from "./types";

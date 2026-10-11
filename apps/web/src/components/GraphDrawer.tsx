@@ -1,6 +1,6 @@
 "use client";
 
-import type { ForceSettings } from "@graph/renderer";
+import type { ForceSettings, InteractionMode } from "@graph/renderer";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -8,36 +8,53 @@ import {
   ImageIcon,
   LinkIcon,
   MinusIcon,
+  MousePointer2Icon,
+  PencilIcon,
   PlusIcon,
+  Redo2Icon,
   RotateCcwIcon,
   ScanIcon,
   ShuffleIcon,
+  Undo2Icon,
   XIcon,
 } from "lucide-react";
 import type { Ref } from "react";
 import { SliderField, SwitchField } from "./fields";
+import { HighlightTextarea } from "./HighlightTextarea";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ParseError } from "@/lib/parse";
-import { DEFAULT_SETTINGS, type AppState, type Group, type Settings } from "@/lib/state";
-import { TEMPLATES } from "@/lib/templates";
+import { matchingPreset, PRESETS, type PresetId } from "@/lib/presets";
+import { COLOR_BY, DEFAULT_SETTINGS, type AppState, type ColorBy, type Group, type Settings } from "@/lib/state";
+import { TEMPLATES, type Template } from "@/lib/templates";
 import { THEMES, type AppTheme } from "@/lib/themes";
 
 export const DRAWER_WIDTH_PX = 360;
+export const REPO_URL = "https://github.com/isaacchacko/graph";
 
 export type ExportKind = "png" | "png-transparent" | "svg" | "copy";
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  mode: InteractionMode;
+  onMode: (mode: InteractionMode) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
   state: AppState;
-  update: (patch: Partial<AppState>) => void;
+  /** `merge` folds rapid changes to the same control into one undo step. */
+  update: (patch: Partial<AppState>, merge?: string) => void;
+  onTemplate: (template: Template) => void;
+  onPreset: (id: PresetId) => void;
   theme: AppTheme;
   errors: ParseError[];
-  stats: { nodes: number; links: number };
+  highlights: [number, number][];
   search: string;
   onSearch: (q: string) => void;
   textareaRef: Ref<HTMLTextAreaElement>;
@@ -47,27 +64,20 @@ interface Props {
   onShare: () => void;
 }
 
-export function GraphDrawer({
-  open,
-  onOpenChange,
-  state,
-  update,
-  theme,
-  errors,
-  stats,
-  search,
-  onSearch,
-  textareaRef,
-  onAnimate,
-  onZoom,
-  onExport,
-  onShare,
-}: Props) {
+export function GraphDrawer(props: Props) {
+  const { open, onOpenChange, state, update, theme, errors, search, onSearch } = props;
   const { settings, groups } = state;
-  const set = <K extends keyof Settings>(key: K, value: Settings[K]) => update({ settings: { ...settings, [key]: value } });
-  const force = (key: keyof ForceSettings, value: number) => set("forces", { ...settings.forces, [key]: value });
-  const setGroups = (next: Group[]) => update({ groups: next });
-  const updateGroup = (i: number, patch: Partial<Group>) => setGroups(groups.map((g, k) => (k === i ? { ...g, ...patch } : g)));
+  const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
+    update({ settings: { ...settings, [key]: value } }, `settings.${key}`);
+  const force = (key: keyof ForceSettings, value: number) =>
+    update({ settings: { ...settings, forces: { ...settings.forces, [key]: value } } }, `forces.${key}`);
+  const setGroups = (next: Group[], merge?: string) => update({ groups: next }, merge);
+  const updateGroup = (i: number, patch: Partial<Group>) =>
+    setGroups(
+      groups.map((g, k) => (k === i ? { ...g, ...patch } : g)),
+      `group.${i}`,
+    );
+  const preset = matchingPreset(settings);
 
   return (
     <aside
@@ -84,20 +94,22 @@ export function GraphDrawer({
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
           <Logo />
           <span className="text-sm font-semibold tracking-tight">graph</span>
-          <span className="ml-auto text-xs text-muted-foreground tabular-nums">
-            {stats.nodes} nodes · {stats.links} links
-          </span>
+          <Button variant="ghost" size="icon-sm" asChild className="ml-auto">
+            <a href={REPO_URL} target="_blank" rel="noreferrer" title="Source on GitHub" aria-label="Source on GitHub">
+              <GitHubIcon />
+            </a>
+          </Button>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <Accordion type="multiple" defaultValue={["source", "display"]} className="px-4">
+          <Accordion type="multiple" defaultValue={["source", "presets"]} className="px-4">
             <Section value="source" title="Source">
               <div className="flex gap-2">
                 <Select
                   value=""
                   onValueChange={(id) => {
                     const template = TEMPLATES.find((t) => t.id === id);
-                    if (template) update({ source: template.source() });
+                    if (template) props.onTemplate(template);
                   }}
                 >
                   <SelectTrigger size="sm" className="flex-1">
@@ -115,15 +127,15 @@ export function GraphDrawer({
                   Clear
                 </Button>
               </div>
-              <Textarea
-                ref={textareaRef}
+              <HighlightTextarea
+                textareaRef={props.textareaRef}
                 value={state.source}
-                onChange={(e) => update({ source: e.target.value })}
+                ranges={props.highlights}
+                onChange={(e) => update({ source: e.target.value }, "source")}
                 spellCheck={false}
                 autoCapitalize="off"
                 autoComplete="off"
                 placeholder={"Alice -> Bob, Carol\nBob -(3)-> Dave\nCarol {tomato 2}"}
-                className="h-64 resize-y font-mono text-xs leading-5 field-sizing-fixed"
               />
               {errors.length > 0 && (
                 <ul className="space-y-0.5 font-mono text-[11px] text-destructive">
@@ -138,11 +150,33 @@ export function GraphDrawer({
                 <Hint keys="A -> B, C">link, fan out</Hint>
                 <Hint keys="A -(3)-> B">weighted link</Hint>
                 <Hint keys="A {red 2}">colour, size</Hint>
-                <Hint keys="click canvas">new node, then type its name</Hint>
-                <Hint keys="drag from node">draw a link</Hint>
-                <Hint keys="double-click node">hold and drag to move it</Hint>
-                <Hint keys="click link">set its weight</Hint>
+                <Hint keys="V · select">drag nodes, pan</Hint>
+                <Hint keys="P · edit">click: new node · drag node→node: edge</Hint>
+                <Hint keys="click + type">rename node / weigh edge</Hint>
+                <Hint keys="⌫ · right-click">delete node or edge</Hint>
+                <Hint keys="⌘Z · ⇧⌘Z">undo · redo</Hint>
               </dl>
+            </Section>
+
+            <Section value="presets" title="Presets">
+              <Select value={preset?.id ?? "custom"} onValueChange={(id) => id !== "custom" && props.onPreset(id as PresetId)}>
+                <SelectTrigger size="sm" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRESETS.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="custom" disabled>
+                    Custom
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {preset?.description ?? "Your own mix. Pick a preset to start from a known setup."}
+              </p>
             </Section>
 
             <Section value="filters" title="Filters">
@@ -178,12 +212,28 @@ export function GraphDrawer({
             </Section>
 
             <Section value="display" title="Display">
+              <div className="flex items-center justify-between gap-3">
+                <Label className="text-xs font-normal text-muted-foreground">Colour by</Label>
+                <Select value={settings.colorBy} onValueChange={(v) => set("colorBy", v as ColorBy)}>
+                  <SelectTrigger size="sm" className="w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COLOR_BY.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <SwitchField label="Arrows" checked={settings.arrows} onChange={(v) => set("arrows", v)} />
+              <SwitchField label="Weights set edge length" checked={settings.weightsAsLength} onChange={(v) => set("weightsAsLength", v)} />
               <SliderField label="Text fade threshold" value={settings.textFadeThreshold} min={-3} max={3} step={0.1} onChange={(v) => set("textFadeThreshold", v)} />
               <SliderField label="Text size" value={settings.textSize} min={0.5} max={3} step={0.05} onChange={(v) => set("textSize", v)} />
               <SliderField label="Node size" value={settings.nodeSize} min={0.2} max={5} step={0.05} onChange={(v) => set("nodeSize", v)} />
               <SliderField label="Link thickness" value={settings.linkThickness} min={0.2} max={5} step={0.05} onChange={(v) => set("linkThickness", v)} />
-              <Button size="sm" className="w-full" onClick={onAnimate}>
+              <Button size="sm" className="w-full" onClick={props.onAnimate}>
                 Animate
               </Button>
             </Section>
@@ -201,7 +251,12 @@ export function GraphDrawer({
                 onChange={(v) => force("linkDistance", v)}
                 format={(v) => String(Math.round(v))}
               />
-              <Button variant="outline" size="sm" className="w-full" onClick={() => update({ settings: DEFAULT_SETTINGS })}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => update({ settings: { ...DEFAULT_SETTINGS, showOrphans: settings.showOrphans } })}
+              >
                 <RotateCcwIcon /> Restore defaults
               </Button>
             </Section>
@@ -226,16 +281,16 @@ export function GraphDrawer({
 
             <Section value="view" title="View">
               <div className="grid grid-cols-4 gap-2">
-                <Button variant="outline" size="sm" onClick={() => onZoom("out")} title="Zoom out (-)">
+                <Button variant="outline" size="sm" onClick={() => props.onZoom("out")} title="Zoom out (-)">
                   <MinusIcon />
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => onZoom("fit")} title="Fit (F)">
+                <Button variant="outline" size="sm" onClick={() => props.onZoom("fit")} title="Fit (F)">
                   <ScanIcon />
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => onZoom("in")} title="Zoom in (+)">
+                <Button variant="outline" size="sm" onClick={() => props.onZoom("in")} title="Zoom in (+)">
                   <PlusIcon />
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => onZoom("shake")} title="Shake the layout loose">
+                <Button variant="outline" size="sm" onClick={() => props.onZoom("shake")} title="Shake the layout loose">
                   <ShuffleIcon />
                 </Button>
               </div>
@@ -243,20 +298,20 @@ export function GraphDrawer({
 
             <Section value="export" title="Export & share">
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="outline" size="sm" onClick={() => onExport("png")}>
+                <Button variant="outline" size="sm" onClick={() => props.onExport("png")}>
                   <ImageIcon /> PNG
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => onExport("png-transparent")}>
+                <Button variant="outline" size="sm" onClick={() => props.onExport("png-transparent")}>
                   <ImageIcon /> PNG, clear
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => onExport("svg")}>
+                <Button variant="outline" size="sm" onClick={() => props.onExport("svg")}>
                   <ImageIcon /> SVG
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => onExport("copy")}>
+                <Button variant="outline" size="sm" onClick={() => props.onExport("copy")}>
                   <CopyIcon /> Copy image
                 </Button>
               </div>
-              <Button size="sm" className="w-full" onClick={onShare}>
+              <Button size="sm" className="w-full" onClick={props.onShare}>
                 <LinkIcon /> Copy share link
               </Button>
             </Section>
@@ -264,15 +319,40 @@ export function GraphDrawer({
         </div>
       </div>
 
-      <Button
-        variant="outline"
-        size="icon"
-        onClick={() => onOpenChange(!open)}
-        title={open ? "Collapse (E)" : "Expand (E)"}
-        className="absolute top-3 left-full ml-3 bg-background/90 backdrop-blur-xl"
-      >
-        {open ? <ChevronLeftIcon /> : <ChevronRightIcon />}
-      </Button>
+      <div className="absolute top-3 left-full ml-3 flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => onOpenChange(!open)}
+          title={open ? "Collapse (E)" : "Expand (E)"}
+          className="bg-background/90 backdrop-blur-xl"
+        >
+          {open ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+        </Button>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          spacing={0}
+          value={props.mode}
+          onValueChange={(v) => v && props.onMode(v as InteractionMode)}
+          className="bg-background/90 backdrop-blur-xl"
+        >
+          <ToggleGroupItem value="select" title="Select (V): drag nodes, pan" aria-label="Select mode" className="size-8">
+            <MousePointer2Icon />
+          </ToggleGroupItem>
+          <ToggleGroupItem value="edit" title="Edit (P): add nodes and edges, rename, delete" aria-label="Edit mode" className="size-8">
+            <PencilIcon />
+          </ToggleGroupItem>
+        </ToggleGroup>
+        <div className="flex bg-background/90 backdrop-blur-xl">
+          <Button variant="outline" size="icon" onClick={props.onUndo} disabled={!props.canUndo} title="Undo (⌘Z)" aria-label="Undo">
+            <Undo2Icon />
+          </Button>
+          <Button variant="outline" size="icon" onClick={props.onRedo} disabled={!props.canRedo} title="Redo (⇧⌘Z)" aria-label="Redo" className="-ml-px">
+            <Redo2Icon />
+          </Button>
+        </div>
+      </div>
     </aside>
   );
 }
@@ -325,6 +405,15 @@ function Logo() {
       <circle cx="13" cy="5" r="1.6" fill="currentColor" />
       <circle cx="6" cy="13" r="1.6" fill="currentColor" />
       <circle cx="9" cy="9" r="2.6" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** The GitHub mark (lucide no longer ships brand icons). */
+function GitHubIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
     </svg>
   );
 }

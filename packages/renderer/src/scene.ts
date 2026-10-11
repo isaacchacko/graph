@@ -19,6 +19,7 @@ export interface SceneNode extends SimNode {
 
 export interface SceneLink extends SimLink<SceneNode> {
   label: string;
+  length: number;
   fade: number;
   accent: number;
 }
@@ -42,6 +43,7 @@ export interface DrawExtras {
   labelOpacity?: number;
   /** In-progress drag-to-connect; `valid` once the pointer is over another node. */
   connectPreview?: { from: SceneNode; to: Point; valid: boolean } | null;
+  selectedNode?: SceneNode | null;
 }
 
 const BASE_RADIUS = 4;
@@ -102,6 +104,14 @@ export function drawScene(
   if (extras.connectPreview) drawConnectPreview(ctx, extras.connectPreview, options, camera.scale);
   drawLinkLabels(ctx, links, options, camera.scale, bounds, extras.labelOpacity);
   drawNodes(ctx, nodes, radii, options, bounds);
+  if (extras.selectedNode) {
+    const n = extras.selectedNode;
+    ctx.strokeStyle = options.theme.accent;
+    ctx.lineWidth = 2 / camera.scale;
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, radii[indexOf.get(n)!] + 4 / camera.scale, 0, Math.PI * 2);
+    ctx.stroke();
+  }
   drawLabels(ctx, nodes, radii, options, camera.scale, bounds, extras.labelOpacity);
 }
 
