@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { formatName, parseGraph } from "./parse";
 
 const ids = (src: string) => parseGraph(src).data.nodes.map((n) => n.id);
-const links = (src: string) => parseGraph(src).data.links.map((l) => `${l.source}>${l.target}`);
+const links = (src: string) => parseGraph(src).data.links.map((l) => `${l.source}>${l.target}${l.label ? `=${l.label}` : ""}`);
 
 describe("parseGraph", () => {
   it("parses chains and fan-outs", () => {
@@ -17,6 +17,17 @@ describe("parseGraph", () => {
     expect(links("A <- B")).toEqual(["B>A"]);
     expect(links("A -- B")).toEqual(["A>B"]);
     expect(links("A <-> B")).toEqual(["A>B", "B>A"]);
+  });
+
+  it("reads weights on any arrow", () => {
+    expect(links("A -(3)-> B")).toEqual(["A>B=3"]);
+    expect(links("A <-(x y)- B")).toEqual(["B>A=x y"]);
+    expect(links("A -(2.5)- B -> C")).toEqual(["A>B=2.5", "B>C"]);
+  });
+
+  it("lets the last statement of a link decide its weight", () => {
+    expect(links("A -(3)-> B\nA -> B")).toEqual(["A>B"]);
+    expect(links("A -> B\nA -(4)-> B")).toEqual(["A>B=4"]);
   });
 
   it("reads colour and size props wherever a node appears", () => {
@@ -41,8 +52,15 @@ describe("parseGraph", () => {
     expect(errors.map((e) => e.line)).toEqual([2, 3]);
   });
 
+  it("records where names and single-pair arrows are written", () => {
+    const parsed = parseGraph('  "x y" {red} -> B, C\nB -(2)-> C');
+    expect(parsed.names.get("x y")).toEqual([{ line: 0, start: 2, end: 7 }]);
+    expect(parsed.arrows.get("x y\u0000B")).toBeNull();
+    expect(parsed.arrows.get("B\u0000C")).toEqual({ line: 1, start: 2, end: 8, left: false, right: true });
+  });
+
   it("round-trips names through formatName", () => {
-    for (const name of ["plain", "Acme, Inc.", "a -> b", "{x}", "#tag"]) {
+    for (const name of ["plain", "Acme, Inc.", "a -> b", "{x}", "#tag", "f(x)"]) {
       expect(ids(`${formatName(name)} -> z`)[0]).toBe(name);
     }
   });

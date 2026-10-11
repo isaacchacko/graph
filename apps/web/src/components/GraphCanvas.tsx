@@ -20,6 +20,7 @@ const EVENTS: (keyof RendererEvents)[] = [
   "backgroundClick",
   "backgroundDoubleClick",
   "connect",
+  "linkClick",
   "zoom",
 ];
 

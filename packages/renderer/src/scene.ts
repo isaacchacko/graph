@@ -18,6 +18,7 @@ export interface SceneNode extends SimNode {
 }
 
 export interface SceneLink extends SimLink<SceneNode> {
+  label: string;
   fade: number;
   accent: number;
 }
@@ -39,8 +40,8 @@ export interface View {
 export interface DrawExtras {
   /** Forces every label to this opacity (used for exports). */
   labelOpacity?: number;
-  /** In-progress shift-drag connection. */
-  connectPreview?: { from: SceneNode; to: Point } | null;
+  /** In-progress drag-to-connect; `valid` once the pointer is over another node. */
+  connectPreview?: { from: SceneNode; to: Point; valid: boolean } | null;
 }
 
 const BASE_RADIUS = 4;
@@ -99,6 +100,7 @@ export function drawScene(
 
   drawLinks(ctx, links, radii, indexOf, options, camera.scale, bounds);
   if (extras.connectPreview) drawConnectPreview(ctx, extras.connectPreview, options, camera.scale);
+  drawLinkLabels(ctx, links, options, camera.scale, bounds, extras.labelOpacity);
   drawNodes(ctx, nodes, radii, options, bounds);
   drawLabels(ctx, nodes, radii, options, camera.scale, bounds, extras.labelOpacity);
 }
@@ -186,21 +188,61 @@ function drawLinks(
   ctx.globalAlpha = 1;
 }
 
+const INVALID_CONNECT_COLOR = "#ef4444";
+
 function drawConnectPreview(
   ctx: CanvasRenderingContext2D,
-  preview: { from: SceneNode; to: Point },
+  preview: { from: SceneNode; to: Point; valid: boolean },
   options: RendererOptions,
   scale: number,
 ): void {
   ctx.save();
-  ctx.strokeStyle = options.theme.accent;
-  ctx.lineWidth = Math.max(1.5, options.linkThickness * 1.5) / Math.min(scale, 1);
-  ctx.setLineDash([6 / scale, 6 / scale]);
+  ctx.globalAlpha = preview.valid ? 1 : 0.5;
+  ctx.strokeStyle = preview.valid ? options.theme.accent : INVALID_CONNECT_COLOR;
+  ctx.lineWidth = Math.max(options.linkThickness * 1.5, 1.5 / scale);
+  ctx.lineCap = "round";
   ctx.beginPath();
   ctx.moveTo(preview.from.x, preview.from.y);
   ctx.lineTo(preview.to.x, preview.to.y);
   ctx.stroke();
   ctx.restore();
+}
+
+export const LINK_LABEL_FONT = 10;
+
+function drawLinkLabels(
+  ctx: CanvasRenderingContext2D,
+  links: readonly SceneLink[],
+  options: RendererOptions,
+  scale: number,
+  b: Bounds,
+  forcedOpacity: number | undefined,
+): void {
+  const { theme } = options;
+  // Weights stay readable a little further out than node labels.
+  const zoomOpacity = forcedOpacity ?? zoomLabelOpacity(scale, options.textFadeThreshold - 1);
+  const fontSize = LINK_LABEL_FONT * options.textSize;
+  ctx.font = `${fontSize}px ${theme.fontFamily}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  for (const link of links) {
+    if (!link.label) continue;
+    const opacity = Math.max(zoomOpacity, link.accent) * link.fade * Math.min(link.source.appear, link.target.appear);
+    if (opacity < 0.02) continue;
+    const x = (link.source.x + link.target.x) / 2;
+    const y = (link.source.y + link.target.y) / 2;
+    if (x < b.left || x > b.right || y < b.top || y > b.bottom) continue;
+    const w = ctx.measureText(link.label).width + fontSize * 0.6;
+    const h = fontSize * 1.4;
+    ctx.globalAlpha = opacity;
+    if (theme.background) {
+      ctx.fillStyle = theme.background;
+      ctx.fillRect(x - w / 2, y - h / 2, w, h);
+    }
+    ctx.fillStyle = mixColors(theme.text, theme.accent, link.accent);
+    ctx.fillText(link.label, x, y);
+  }
+  ctx.globalAlpha = 1;
 }
 
 function drawNodes(

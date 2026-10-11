@@ -4,18 +4,13 @@ export interface Template {
   source: () => string;
 }
 
-const STARTER = `# Type links on the left, watch them on the right.
-#   A -> B, C     fan out
-#   A -> B -> C   chain
-#   Node {red 2}  colour and size
-# Double-click the canvas to add a node.
-# Shift-drag from one node to another to link them.
+const STARTER = `# Edit this text or the canvas: the hints below show how.
 
 graph -> renderer, website
 renderer -> physics, camera, hover, labels
 physics -> "link force", "repel force", "center force"
 website -> editor, settings, export, "share link"
-export -> PNG, SVG
+export -(2)-> PNG, SVG
 settings -> themes, groups, forces
 graph {#8f7cf7 2}
 `;

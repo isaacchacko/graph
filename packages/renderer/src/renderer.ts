@@ -8,9 +8,9 @@ type Listener<K extends keyof RendererEvents> = (payload: RendererEvents[K]) => 
 type ListenerMap = { [K in keyof RendererEvents]?: Set<Listener<K>> };
 
 type Gesture =
-  | { kind: "pan"; pointerId: number; startX: number; startY: number; camX: number; camY: number; moved: boolean }
+  | { kind: "pan"; pointerId: number; startX: number; startY: number; camX: number; camY: number; moved: boolean; link: SceneLink | null }
   | { kind: "drag"; pointerId: number; node: SceneNode; startX: number; startY: number; moved: boolean }
-  | { kind: "connect"; pointerId: number; node: SceneNode; to: Point }
+  | { kind: "connect"; pointerId: number; node: SceneNode; startX: number; startY: number; moved: boolean; to: Point; target: SceneNode | null }
   | { kind: "pinch"; distance: number; scale: number; center: Point };
 
 export interface Insets {
@@ -28,6 +28,9 @@ export interface PartialOptions extends Partial<Omit<RendererOptions, "forces" |
 const MIN_SCALE = 0.02;
 const MAX_SCALE = 8;
 const CLICK_SLOP = 4;
+/** A press this soon after clicking the same node picks the node up instead of drawing a link. */
+const DOUBLE_PRESS_MS = 350;
+const LINK_HIT_PX = 6;
 const FADE_TIME_MS = 90;
 const APPEAR_TIME_MS = 260;
 const CAMERA_TIME_MS = 140;
@@ -66,6 +69,9 @@ export class GraphRenderer {
   private pixelRatio = 1;
 
   private hovered: SceneNode | null = null;
+  /** Keyed rather than held, because link objects are rebuilt on every data update. */
+  private hoveredLink: string | null = null;
+  private lastNodeClick: { node: SceneNode; time: number; x: number; y: number } | null = null;
   private highlighted: Set<string> | null = null;
   private gesture: Gesture | null = null;
   private pointers = new Map<number, Point>();
@@ -187,6 +193,31 @@ export class GraphRenderer {
     return n ? { x: n.x, y: n.y } : null;
   }
 
+  /** Where a node is on screen right now, with its on-screen radius. */
+  getNodeScreenBox(id: string): { x: number; y: number; r: number } | null {
+    const n = this.nodeById.get(id);
+    if (!n) return null;
+    return { ...this.worldToScreen(n), r: nodeRadius(n, this.options) * this.camera.scale };
+  }
+
+  getLinkScreenMidpoint(source: string, target: string): Point | null {
+    const link = this.links.find((l) => l.source.id === source && l.target.id === target);
+    if (!link) return null;
+    return this.worldToScreen(midpoint(link.source, link.target));
+  }
+
+  /**
+   * Re-keys a node in place so the next {@link setData} that uses `newId`
+   * keeps its position instead of treating it as a new node.
+   */
+  renameNode(oldId: string, newId: string): void {
+    const node = this.nodeById.get(oldId);
+    if (!node || oldId === newId || this.nodeById.has(newId)) return;
+    this.nodeById.delete(oldId);
+    node.id = newId;
+    this.nodeById.set(newId, node);
+  }
+
   on<K extends keyof RendererEvents>(event: K, listener: Listener<K>): () => void {
     const listeners = this.listeners as Record<string, Set<Listener<K>>>;
     const set = (listeners[event] ??= new Set());
@@ -299,7 +330,7 @@ export class GraphRenderer {
       if (seen.has(key)) continue;
       seen.add(key);
       const old = previousLinks.get(key);
-      links.push({ source, target, fade: old?.fade ?? 1, accent: old?.accent ?? 0 });
+      links.push({ source, target, label: input.label ?? "", fade: old?.fade ?? 1, accent: old?.accent ?? 0 });
     }
 
     const neighbors = new Map<SceneNode, Set<SceneNode>>(nodes.map((n) => [n, new Set()]));
@@ -432,13 +463,21 @@ export class GraphRenderer {
       this.options,
       { camera: this.camera, width: this.width, height: this.height, pixelRatio: this.pixelRatio },
       {
-        connectPreview: this.gesture?.kind === "connect" ? { from: this.gesture.node, to: this.gesture.to } : null,
+        connectPreview: this.connectPreview(),
       },
     );
   }
 
+  private connectPreview() {
+    const g = this.gesture;
+    if (g?.kind !== "connect" || !g.moved) return null;
+    // Snap onto a valid target so the preview shows exactly the link it will make.
+    return { from: g.node, to: g.target ?? g.to, valid: g.target !== null };
+  }
+
   private animateFocus(dt: number): boolean {
-    const focus = this.hovered ?? (this.gesture?.kind === "drag" ? this.gesture.node : null);
+    const connecting = this.gesture?.kind === "connect" && this.gesture.moved ? this.gesture : null;
+    const focus = connecting ? null : (this.hovered ?? (this.gesture?.kind === "drag" ? this.gesture.node : null));
     const near = focus ? this.neighbors.get(focus)! : null;
     const highlighted = focus ? null : this.highlighted;
     const dim = this.options.dimOpacity;
@@ -450,7 +489,9 @@ export class GraphRenderer {
       let fade = 1;
       let accent = 0;
       let emphasis = 0;
-      if (focus) {
+      if (connecting) {
+        accent = emphasis = n === connecting.node || n === connecting.target ? 1 : 0;
+      } else if (focus) {
         const inFocus = n === focus || near!.has(n);
         fade = inFocus ? 1 : dim;
         accent = n === focus ? 1 : 0;
@@ -478,6 +519,8 @@ export class GraphRenderer {
       } else if (highlighted) {
         const touches = highlighted.has(l.source.id) && highlighted.has(l.target.id);
         fade = touches ? 1 : dim;
+      } else if (this.hoveredLink === linkKey(l.source.id, l.target.id)) {
+        accent = 1;
       }
       l.fade = approach(l.fade, fade, fadeStep);
       l.accent = approach(l.accent, accent, fadeStep);
@@ -576,6 +619,29 @@ export class GraphRenderer {
     return best;
   }
 
+  private linkAt(screen: Point): SceneLink | null {
+    const world = this.screenToWorld(screen);
+    const reach = LINK_HIT_PX / this.camera.scale + this.options.linkThickness / 2;
+    let best: SceneLink | null = null;
+    let bestDistance = reach;
+    for (const l of this.links) {
+      if (l.source === l.target) continue;
+      const d = distanceToSegment(world, l.source, l.target);
+      if (d <= bestDistance) {
+        best = l;
+        bestDistance = d;
+      }
+    }
+    return best;
+  }
+
+  private setHoveredLink(link: SceneLink | null): void {
+    const key = link ? linkKey(link.source.id, link.target.id) : null;
+    if (key === this.hoveredLink) return;
+    this.hoveredLink = key;
+    this.schedule();
+  }
+
   private setHovered(node: SceneNode | null): void {
     if (node === this.hovered) return;
     this.hovered = node;
@@ -597,15 +663,32 @@ export class GraphRenderer {
     }
 
     const node = this.nodeAt(p);
-    if (node && e.shiftKey) {
-      this.gesture = { kind: "connect", pointerId: e.pointerId, node, to: { x: node.x, y: node.y } };
-    } else if (node) {
+    const last = this.lastNodeClick;
+    this.lastNodeClick = null;
+    const doublePress =
+      node !== null &&
+      last?.node === node &&
+      e.timeStamp - last.time < DOUBLE_PRESS_MS &&
+      Math.hypot(last.x - p.x, last.y - p.y) < CLICK_SLOP * 3;
+
+    if (node && doublePress) {
       node.fx = node.x;
       node.fy = node.y;
       this.gesture = { kind: "drag", pointerId: e.pointerId, node, startX: p.x, startY: p.y, moved: false };
       this.canvas.style.cursor = "grabbing";
+    } else if (node) {
+      this.gesture = { kind: "connect", pointerId: e.pointerId, node, startX: p.x, startY: p.y, moved: false, to: { x: node.x, y: node.y }, target: null };
     } else {
-      this.gesture = { kind: "pan", pointerId: e.pointerId, startX: p.x, startY: p.y, camX: this.camera.x, camY: this.camera.y, moved: false };
+      this.gesture = {
+        kind: "pan",
+        pointerId: e.pointerId,
+        startX: p.x,
+        startY: p.y,
+        camX: this.camera.x,
+        camY: this.camera.y,
+        moved: false,
+        link: this.linkAt(p),
+      };
     }
     this.schedule();
   };
@@ -617,8 +700,10 @@ export class GraphRenderer {
 
     if (!g) {
       const node = this.nodeAt(p);
+      const link = node ? null : this.linkAt(p);
       this.setHovered(node);
-      this.canvas.style.cursor = node ? "pointer" : "default";
+      this.setHoveredLink(link);
+      this.canvas.style.cursor = node || link ? "pointer" : "default";
       return;
     }
 
@@ -662,9 +747,16 @@ export class GraphRenderer {
         return;
       }
       case "connect": {
+        if (e.pointerId !== g.pointerId) return;
+        if (!g.moved && Math.hypot(p.x - g.startX, p.y - g.startY) < CLICK_SLOP) return;
+        if (!g.moved) {
+          g.moved = true;
+          this.setHovered(null);
+          this.canvas.style.cursor = "crosshair";
+        }
         g.to = this.screenToWorld(p);
         const over = this.nodeAt(p);
-        this.setHovered(over && over !== g.node ? over : null);
+        g.target = over && over !== g.node ? over : null;
         this.schedule();
         return;
       }
@@ -686,17 +778,23 @@ export class GraphRenderer {
 
     if (g.kind === "drag") {
       this.releaseDrag(g.node);
-      if (!g.moved) this.emit("nodeClick", { id: g.node.id, event: e });
-    } else if (g.kind === "pan") {
-      if (!g.moved) this.emit("backgroundClick", { world: this.screenToWorld(p), event: e });
+    } else if (g.kind === "pan" && !g.moved) {
+      if (g.link) this.emit("linkClick", { source: g.link.source.id, target: g.link.target.id, event: e });
+      else this.emit("backgroundClick", { world: this.screenToWorld(p), event: e });
     } else if (g.kind === "connect") {
-      const target = this.nodeAt(p);
-      if (target && target !== g.node) this.emit("connect", { source: g.node.id, target: target.id });
+      if (!g.moved) {
+        this.lastNodeClick = { node: g.node, time: e.timeStamp, x: p.x, y: p.y };
+        this.emit("nodeClick", { id: g.node.id, event: e });
+      } else if (g.target) {
+        this.emit("connect", { source: g.node.id, target: g.target.id });
+      }
     }
 
     const node = e.pointerType === "mouse" ? this.nodeAt(p) : null;
+    const link = e.pointerType === "mouse" && !node ? this.linkAt(p) : null;
     this.setHovered(node);
-    this.canvas.style.cursor = node ? "pointer" : "default";
+    this.setHoveredLink(link);
+    this.canvas.style.cursor = node || link ? "pointer" : "default";
     this.schedule();
   };
 
@@ -710,7 +808,9 @@ export class GraphRenderer {
   }
 
   private onPointerLeave = (): void => {
-    if (!this.gesture) this.setHovered(null);
+    if (this.gesture) return;
+    this.setHovered(null);
+    this.setHoveredLink(null);
   };
 
   private onWheel = (e: WheelEvent): void => {
@@ -766,6 +866,14 @@ function approach(current: number, target: number, step: number): number {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
+}
+
+function distanceToSegment(p: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const lengthSq = dx * dx + dy * dy;
+  const t = lengthSq === 0 ? 0 : clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSq, 0, 1);
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
 }
 
 function midpoint(a: Point, b: Point): Point {

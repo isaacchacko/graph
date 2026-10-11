@@ -13,6 +13,8 @@ export interface GraphNodeInput {
 export interface GraphLinkInput {
   source: string;
   target: string;
+  /** Text drawn at the link's midpoint, e.g. a weight. */
+  label?: string;
 }
 
 export interface GraphData {
@@ -72,7 +74,8 @@ export interface RendererEvents {
   nodeHover: { id: string | null };
   backgroundClick: { world: Point; event: PointerEvent };
   backgroundDoubleClick: { world: Point; event: MouseEvent };
-  /** Fired when the user shift-drags from one node and releases on another. */
+  /** Fired when the user drags from one node and releases on another. */
   connect: { source: string; target: string };
+  linkClick: { source: string; target: string; event: PointerEvent };
   zoom: { scale: number };
 }

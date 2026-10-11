@@ -69,6 +69,22 @@ export function buildSvg(
     out.push("</g>");
   }
 
+  const weighted = links.filter((l) => l.label);
+  if (labels && weighted.length > 0) {
+    const size = 10 * options.textSize;
+    out.push(`<g font-family="${escape(theme.fontFamily)}" font-size="${f(size)}" text-anchor="middle" dominant-baseline="central">`);
+    for (const { source: s, target: t, label } of weighted) {
+      const x = (s.x + t.x) / 2;
+      const y = (s.y + t.y) / 2;
+      const w = label.length * size * 0.6 + size * 0.6;
+      if (theme.background && !transparent) {
+        out.push(`<rect x="${f(x - w / 2)}" y="${f(y - size * 0.7)}" width="${f(w)}" height="${f(size * 1.4)}" fill="${escape(theme.background)}"/>`);
+      }
+      out.push(`<text x="${f(x)}" y="${f(y)}" fill="${escape(theme.text)}">${escape(label)}</text>`);
+    }
+    out.push("</g>");
+  }
+
   out.push(`<g fill="${escape(theme.node)}">`);
   for (const n of nodes) {
     const fill = n.color ? ` fill="${escape(n.color)}"` : "";

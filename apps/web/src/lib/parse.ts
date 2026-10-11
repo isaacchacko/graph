@@ -1,4 +1,4 @@
-import type { GraphData, GraphNodeInput } from "@graph/renderer";
+import type { GraphData, GraphLinkInput, GraphNodeInput } from "@graph/renderer";
 
 /**
  * The graph language, one statement per line:
@@ -6,11 +6,14 @@ import type { GraphData, GraphNodeInput } from "@graph/renderer";
  *   Alice -> Bob                  link
  *   Alice -> Bob, Carol           fan out
  *   Alice -> Bob -> Carol         chain
- *   Alice <- Bob    Alice -- Bob  reverse / undirected
+ *   Alice <- Bob    Alice -- Bob  reverse / undirected   (<-> both ways)
+ *   Alice -(3)-> Bob              weighted link (any arrow: -(3)-, <-(3)-, …)
  *   Dave                          lone node
  *   Sun {gold 3}                  colour and size, anywhere the node appears
- *   "Acme, Inc." -> Bob           quote names that contain , { } or arrows
+ *   "Acme, Inc." -> Bob           quote names that contain , { } ( or arrows
  *   # comment    // comment
+ *
+ * When a link is stated more than once, the last statement decides its weight.
  */
 
 export interface ParseError {
@@ -18,23 +21,52 @@ export interface ParseError {
   message: string;
 }
 
+/** A character range within one line: `[start, end)`, line 0-based. */
+export interface Span {
+  line: number;
+  start: number;
+  end: number;
+}
+
+export interface ArrowSpan extends Span {
+  left: boolean;
+  right: boolean;
+}
+
 export interface ParseResult {
   data: GraphData;
   errors: ParseError[];
+  /** Every place each node's name is written, for renaming in place. */
+  names: Map<string, Span[]>;
+  /**
+   * The arrow of each link's last statement, when that arrow joins exactly one
+   * pair of nodes and can be rewritten without touching other links.
+   */
+  arrows: Map<string, ArrowSpan | null>;
 }
-
-type Arrow = "->" | "<-" | "--" | "<->";
-const ARROWS: Arrow[] = ["<->", "->", "<-", "--"];
 
 interface NodeRef {
   name: string;
+  span: Span;
   color?: string;
   size?: number;
 }
 
+interface Arrow extends ArrowSpan {
+  weight?: string;
+}
+
+const ARROW = /<?-\(([^)]*)\)->?|<->|->|<-|--/y;
+
+export function linkKey(source: string, target: string): string {
+  return `${source}\u0000${target}`;
+}
+
 export function parseGraph(source: string): ParseResult {
   const nodes = new Map<string, GraphNodeInput>();
-  const links: GraphData["links"] = [];
+  const links = new Map<string, GraphLinkInput>();
+  const names = new Map<string, Span[]>();
+  const arrows = new Map<string, ArrowSpan | null>();
   const errors: ParseError[] = [];
 
   const touch = (ref: NodeRef) => {
@@ -42,107 +74,123 @@ export function parseGraph(source: string): ParseResult {
     if (!node) nodes.set(ref.name, (node = { id: ref.name }));
     if (ref.color) node.color = ref.color;
     if (ref.size) node.size = ref.size;
+    const spans = names.get(ref.name) ?? [];
+    spans.push(ref.span);
+    names.set(ref.name, spans);
   };
 
-  source.split(/\r?\n/).forEach((raw, i) => {
-    const line = raw.trim();
-    if (!line || line.startsWith("#") || line.startsWith("//")) return;
+  const link = (from: NodeRef, to: NodeRef, arrow: Arrow, unique: boolean) => {
+    const key = linkKey(from.name, to.name);
+    // Re-insert so a later statement also moves the link to the end, like the weight it sets.
+    links.delete(key);
+    links.set(key, { source: from.name, target: to.name, ...(arrow.weight ? { label: arrow.weight } : {}) });
+    arrows.set(key, unique ? { line: arrow.line, start: arrow.start, end: arrow.end, left: arrow.left, right: arrow.right } : null);
+  };
+
+  source.split(/\r?\n/).forEach((raw, line) => {
+    const trimmed = raw.trim();
+    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//")) return;
     try {
-      const { groups, arrows } = splitStatement(line);
+      const { groups, arrows: lineArrows } = parseStatement(raw, line);
       groups.forEach((group) => group.forEach(touch));
-      arrows.forEach((arrow, k) => {
+      lineArrows.forEach((arrow, k) => {
+        const unique = groups[k].length === 1 && groups[k + 1].length === 1;
         for (const a of groups[k]) {
           for (const b of groups[k + 1]) {
-            if (arrow === "<-") links.push({ source: b.name, target: a.name });
-            else links.push({ source: a.name, target: b.name });
-            if (arrow === "<->") links.push({ source: b.name, target: a.name });
+            if (arrow.left && !arrow.right) link(b, a, arrow, unique);
+            else link(a, b, arrow, unique);
+            if (arrow.left && arrow.right) link(b, a, arrow, unique);
           }
         }
       });
     } catch (e) {
-      errors.push({ line: i + 1, message: (e as Error).message });
+      errors.push({ line: line + 1, message: (e as Error).message });
     }
   });
 
-  return { data: { nodes: [...nodes.values()], links }, errors };
+  return { data: { nodes: [...nodes.values()], links: [...links.values()] }, errors, names, arrows };
 }
 
-function splitStatement(line: string): { groups: NodeRef[][]; arrows: Arrow[] } {
-  const segments: string[] = [];
+function parseStatement(raw: string, line: number): { groups: NodeRef[][]; arrows: Arrow[] } {
+  const segments: { start: number; end: number }[] = [];
   const arrows: Arrow[] = [];
-  let current = "";
-  let quoted = false;
-  let braces = 0;
+  let segmentStart = 0;
 
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '"') quoted = !quoted;
-    else if (!quoted && c === "{") braces++;
-    else if (!quoted && c === "}") braces = Math.max(0, braces - 1);
-    if (!quoted && braces === 0) {
-      const arrow = ARROWS.find((a) => line.startsWith(a, i));
-      if (arrow) {
-        segments.push(current);
-        arrows.push(arrow);
-        current = "";
-        i += arrow.length - 1;
-        continue;
-      }
-    }
-    current += c;
-  }
-  if (quoted) throw new Error("Unclosed quote");
-  segments.push(current);
+  scan(raw, 0, raw.length, (i) => {
+    ARROW.lastIndex = i;
+    const m = ARROW.exec(raw);
+    if (!m) return 0;
+    segments.push({ start: segmentStart, end: i });
+    const text = m[0];
+    const weight = m[1]?.trim();
+    arrows.push({ line, start: i, end: i + text.length, left: text.startsWith("<"), right: text.endsWith(">"), weight: weight || undefined });
+    segmentStart = i + text.length;
+    return text.length;
+  });
+  segments.push({ start: segmentStart, end: raw.length });
 
   const groups = segments.map((segment, k) => {
-    const refs = splitList(segment).map(parseRef);
-    if (refs.length === 0) {
-      throw new Error(k === 0 ? "Missing a node before the arrow" : "Missing a node after the arrow");
-    }
+    const refs: NodeRef[] = [];
+    let partStart = segment.start;
+    scan(raw, segment.start, segment.end, (i) => {
+      if (raw[i] !== ",") return 0;
+      pushRef(refs, raw, partStart, i, line);
+      partStart = i + 1;
+      return 1;
+    });
+    pushRef(refs, raw, partStart, segment.end, line);
+    if (refs.length === 0) throw new Error(k === 0 ? "Missing a node before the arrow" : "Missing a node after the arrow");
     return refs;
   });
   return { groups, arrows };
 }
 
-function splitList(segment: string): string[] {
-  const parts: string[] = [];
-  let current = "";
+/**
+ * Walks `raw[start, end)` skipping quoted text and `{…}` props, calling
+ * `separator` at every other position. It returns how many characters it
+ * consumed (0 when there is no separator there).
+ */
+function scan(raw: string, start: number, end: number, separator: (i: number) => number): void {
   let quoted = false;
   let braces = 0;
-  for (const c of segment) {
+  for (let i = start; i < end; i++) {
+    const c = raw[i];
     if (c === '"') quoted = !quoted;
     else if (!quoted && c === "{") braces++;
     else if (!quoted && c === "}") braces = Math.max(0, braces - 1);
-    if (c === "," && !quoted && braces === 0) {
-      parts.push(current);
-      current = "";
-    } else {
-      current += c;
+    else if (!quoted && braces === 0) {
+      const consumed = separator(i);
+      if (consumed > 0) i += consumed - 1;
     }
   }
-  parts.push(current);
-  return parts.map((p) => p.trim()).filter(Boolean);
+  if (quoted) throw new Error("Unclosed quote");
 }
 
-function parseRef(text: string): NodeRef {
-  let name = text;
+function pushRef(refs: NodeRef[], raw: string, start: number, end: number, line: number): void {
+  const text = raw.slice(start, end);
+  const body = text.trim();
+  if (!body) return;
+  const bodyStart = start + (text.length - text.trimStart().length);
+
+  let nameText = body;
   let props = "";
-  const brace = findPropsStart(text);
+  const brace = findPropsStart(body);
   if (brace >= 0) {
-    if (!text.endsWith("}")) throw new Error(`Unclosed { in "${text}"`);
-    name = text.slice(0, brace).trim();
-    props = text.slice(brace + 1, -1);
+    if (!body.endsWith("}")) throw new Error(`Unclosed { in "${body}"`);
+    nameText = body.slice(0, brace).trimEnd();
+    props = body.slice(brace + 1, -1);
   }
+  let name = nameText;
   if (name.startsWith('"') && name.endsWith('"') && name.length >= 2) name = name.slice(1, -1);
   if (!name) throw new Error("Empty node name");
 
-  const ref: NodeRef = { name };
+  const ref: NodeRef = { name, span: { line, start: bodyStart, end: bodyStart + nameText.length } };
   for (const token of props.split(/[\s,]+/).filter(Boolean)) {
     const size = /^(\d*\.?\d+)x?$/.exec(token);
     if (size) ref.size = Math.min(20, Math.max(0.1, Number(size[1])));
     else ref.color = token;
   }
-  return ref;
+  refs.push(ref);
 }
 
 function findPropsStart(text: string): number {
@@ -156,5 +204,14 @@ function findPropsStart(text: string): number {
 
 /** Quotes a name only if the parser would otherwise misread it. */
 export function formatName(name: string): string {
-  return /[",{}]|->|<-|--|^\s|\s$|^#|^\/\//.test(name) ? `"${name.replaceAll('"', "'")}"` : name;
+  return /[",{}()]|->|<-|--|^\s|\s$|^#|^\/\//.test(name) ? `"${name.replaceAll('"', "'")}"` : name;
+}
+
+export function formatArrow(left: boolean, right: boolean, weight?: string): string {
+  const w = weight?.replaceAll(")", "").trim();
+  if (w) return `${left ? "<" : ""}-(${w})-${right ? ">" : ""}`;
+  if (left && right) return "<->";
+  if (left) return "<-";
+  if (right) return "->";
+  return "--";
 }

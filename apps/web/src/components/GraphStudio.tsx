@@ -2,10 +2,12 @@
 
 import type { GraphRenderer, PartialOptions, Point } from "@graph/renderer";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Button, Panel } from "./controls";
-import { EditorPanel } from "./EditorPanel";
+import { toast } from "sonner";
+import { DRAWER_WIDTH_PX, GraphDrawer, type ExportKind } from "./GraphDrawer";
 import { GraphCanvas } from "./GraphCanvas";
-import { SettingsPanel } from "./SettingsPanel";
+import { Input } from "@/components/ui/input";
+import { Toaster } from "@/components/ui/sonner";
+import { appendLine, renameNode, setLinkWeight, uniqueName } from "@/lib/edit";
 import { formatName, parseGraph } from "@/lib/parse";
 import { decodeState, decorate, encodeState, matchesQuery, withDefaults, type AppState } from "@/lib/state";
 import { TEMPLATES } from "@/lib/templates";
@@ -13,21 +15,30 @@ import { themeById, type AppTheme } from "@/lib/themes";
 
 const STORAGE_KEY = "graph:v1";
 const LINE_HEIGHT_PX = 20;
-const EDITOR_WIDTH_PX = 380;
-const SETTINGS_WIDTH_PX = 280;
+
+/** What is being typed into on the canvas: a node's name or a link's weight. */
+type Editing =
+  | { kind: "node"; id: string; text: string; undo: string | null }
+  | { kind: "link"; source: string; target: string; text: string };
 
 export function GraphStudio() {
   const [state, setState] = useState<AppState>(() => withDefaults({ source: TEMPLATES[0].source() }));
   const [loaded, setLoaded] = useState(false);
   const [search, setSearch] = useState("");
-  const [editorOpen, setEditorOpen] = useState(true);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(true);
   const [renderer, setRenderer] = useState<GraphRenderer | null>(null);
-  const [draft, setDraft] = useState<{ screen: Point; world: Point } | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
   const [spawnPoints, setSpawnPoints] = useState<Record<string, Point>>({});
+  const [editing, setEditingState] = useState<Editing | null>(null);
+  const editingRef = useRef<Editing | null>(null);
+  /** Set when a canvas press only served to finish an edit, so it must not also act. */
+  const swallowClick = useRef(false);
+  const overlay = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+
+  const setEditing = useCallback((next: Editing | null) => {
+    editingRef.current = next;
+    setEditingState(next);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,7 +56,7 @@ export function GraphStudio() {
       }
       if (cancelled) return;
       if (initial) setState(initial);
-      if (window.innerWidth < 768) setEditorOpen(false);
+      if (window.innerWidth < 768) setDrawerOpen(false);
       setLoaded(true);
     })();
     return () => {
@@ -65,22 +76,21 @@ export function GraphStudio() {
     return () => clearTimeout(t);
   }, [state, loaded]);
 
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2200);
-    return () => clearTimeout(t);
-  }, [toast]);
-
   const theme = themeById(state.themeId);
   const parsed = useMemo(() => parseGraph(state.source), [state.source]);
   const data = useMemo(() => {
     const decorated = decorate(parsed.data, state.groups, state.settings.showOrphans);
-    const nodes = decorated.nodes.map((n) => {
-      const at = spawnPoints[n.id];
-      return at ? { ...n, ...at } : n;
-    });
-    return { nodes, links: decorated.links };
-  }, [parsed, state.groups, state.settings.showOrphans, spawnPoints]);
+    // Whatever is being typed into is drawn by the input on top, not the canvas.
+    const nodes = decorated.nodes.map((n) => ({
+      ...n,
+      ...spawnPoints[n.id],
+      ...(editing?.kind === "node" && editing.id === n.id ? { label: "" } : {}),
+    }));
+    const links = decorated.links.map((l) =>
+      editing?.kind === "link" && editing.source === l.source && editing.target === l.target ? { ...l, label: undefined } : l,
+    );
+    return { nodes, links };
+  }, [parsed, state.groups, state.settings.showOrphans, spawnPoints, editing]);
 
   const options = useMemo<PartialOptions>(() => {
     const { forces, nodeSize, linkThickness, textSize, textFadeThreshold, arrows } = state.settings;
@@ -93,10 +103,66 @@ export function GraphStudio() {
   );
 
   const update = useCallback((patch: Partial<AppState>) => setState((s) => ({ ...s, ...patch })), []);
+  const editSource = useCallback((edit: (source: string) => string) => setState((s) => ({ ...s, source: edit(s.source) })), []);
 
-  const appendLine = useCallback((line: string) => {
-    setState((s) => ({ ...s, source: s.source.trimEnd() ? `${s.source.trimEnd()}\n${line}\n` : `${line}\n` }));
-  }, []);
+  // ── Canvas editing ──────────────────────────────────────────────────
+
+  const commitEdit = useCallback(() => {
+    const current = editingRef.current;
+    if (!current) return;
+    setEditing(null);
+    const text = current.text.trim();
+    if (current.kind === "link") {
+      editSource((src) => setLinkWeight(src, parseGraph(src), current.source, current.target, text));
+      return;
+    }
+    if (!text || text === current.id) return;
+    renderer?.renameNode(current.id, text);
+    setSpawnPoints((points) => {
+      const { [current.id]: at, ...rest } = points;
+      return at ? { ...rest, [text]: at } : rest;
+    });
+    editSource((src) => renameNode(src, parseGraph(src), current.id, text));
+  }, [editSource, renderer, setEditing]);
+
+  const cancelEdit = useCallback(() => {
+    const current = editingRef.current;
+    setEditing(null);
+    // Escaping a node you just made un-makes it.
+    if (current?.kind === "node" && current.undo !== null) update({ source: current.undo });
+  }, [setEditing, update]);
+
+  const createNodeAt = (world: Point) => {
+    const name = uniqueName(parsed.data.nodes.map((n) => n.id));
+    setSpawnPoints((points) => ({ ...points, [name]: world }));
+    if (!state.settings.showOrphans) update({ settings: { ...state.settings, showOrphans: true } });
+    editSource((src) => appendLine(src, formatName(name)));
+    setEditing({ kind: "node", id: name, text: "", undo: state.source });
+  };
+
+  const editKey = editing ? (editing.kind === "node" ? `n:${editing.id}` : `l:${editing.source}\u0000${editing.target}`) : null;
+
+  // Keep the input pinned to the moving node or link midpoint.
+  useEffect(() => {
+    if (!renderer || !editKey) return;
+    let raf = 0;
+    const follow = () => {
+      const current = editingRef.current;
+      const el = overlay.current;
+      if (current && el) {
+        if (current.kind === "node") {
+          const box = renderer.getNodeScreenBox(current.id);
+          if (box) el.style.transform = `translate(${box.x}px, ${box.y + box.r + 4}px) translateX(-50%)`;
+        } else {
+          const mid = renderer.getLinkScreenMidpoint(current.source, current.target);
+          if (mid) el.style.transform = `translate(${mid.x}px, ${mid.y}px) translate(-50%, -50%)`;
+        }
+      }
+      raf = requestAnimationFrame(follow);
+    };
+    follow();
+    return () => cancelAnimationFrame(raf);
+  }, [renderer, editKey]);
 
   const revealInSource = useCallback((id: string) => {
     const el = textarea.current;
@@ -111,225 +177,154 @@ export function GraphStudio() {
     el.scrollTop = Math.max(0, index * LINE_HEIGHT_PX - el.clientHeight / 3);
   }, []);
 
-  const addDraftNode = (name: string) => {
-    const trimmed = name.trim();
-    if (draft && trimmed && !parsed.data.nodes.some((n) => n.id === trimmed)) {
-      setSpawnPoints((points) => ({ ...points, [trimmed]: draft.world }));
-      appendLine(formatName(trimmed));
-    }
-    setDraft(null);
-  };
+  // ── Drawer actions ──────────────────────────────────────────────────
 
   const share = async () => {
     const url = `${window.location.origin}${window.location.pathname}#${await encodeState(state)}`;
     try {
       await navigator.clipboard.writeText(url);
-      setToast("Share link copied");
+      toast.success("Share link copied");
     } catch {
       window.prompt("Copy this link", url);
     }
   };
 
-  const exportAs = async (kind: "png" | "png-transparent" | "svg" | "copy") => {
-    setExportOpen(false);
+  const exportAs = async (kind: ExportKind) => {
     if (!renderer) return;
     if (kind === "svg") {
       download(new Blob([renderer.toSVG()], { type: "image/svg+xml" }), "graph.svg");
       return;
     }
     const blob = await renderer.toPNG({ transparent: kind === "png-transparent" });
-    if (kind === "copy") {
-      try {
-        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-        setToast("Image copied");
-      } catch {
-        setToast("Your browser blocked clipboard images");
-      }
+    if (kind !== "copy") {
+      download(blob, "graph.png");
       return;
     }
-    download(blob, "graph.png");
+    try {
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      toast.success("Image copied");
+    } catch {
+      toast.error("Your browser blocked copying images");
+    }
   };
+
+  const zoom = useCallback(
+    (action: "in" | "out" | "fit" | "shake") => {
+      if (action === "in") renderer?.zoomBy(1.4);
+      else if (action === "out") renderer?.zoomBy(1 / 1.4);
+      else if (action === "fit") renderer?.zoomToFit();
+      else renderer?.reheat();
+    },
+    [renderer],
+  );
 
   useEffect(() => {
     if (!renderer) return;
-    const frame = () => {
-      const wide = window.innerWidth >= 768;
-      renderer.setInsets({
-        top: 60,
-        left: wide && editorOpen ? EDITOR_WIDTH_PX + 16 : 0,
-        right: wide && settingsOpen ? SETTINGS_WIDTH_PX + 16 : 0,
-      });
-    };
-    frame();
-    window.addEventListener("resize", frame);
-    return () => window.removeEventListener("resize", frame);
-  }, [renderer, editorOpen, settingsOpen]);
+    const inset = () => renderer.setInsets({ left: drawerOpen && window.innerWidth >= 768 ? DRAWER_WIDTH_PX : 0 });
+    inset();
+    window.addEventListener("resize", inset);
+    return () => window.removeEventListener("resize", inset);
+  }, [renderer, drawerOpen]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (target.closest("input, textarea, select") || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "f") renderer?.zoomToFit();
-      else if (e.key === "e") setEditorOpen((v) => !v);
-      else if (e.key === ",") setSettingsOpen((v) => !v);
-      else if (e.key === "=" || e.key === "+") renderer?.zoomBy(1.4);
-      else if (e.key === "-") renderer?.zoomBy(1 / 1.4);
+      if (target.closest("input, textarea, select, [role=combobox]") || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "f") zoom("fit");
+      else if (e.key === "e") setDrawerOpen((v) => !v);
+      else if (e.key === "=" || e.key === "+") zoom("in");
+      else if (e.key === "-") zoom("out");
       else return;
       e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [renderer]);
+  }, [zoom]);
 
   return (
-    <div className="fixed inset-0 overflow-hidden" style={chromeVars(theme)}>
-      {loaded && (
-        <GraphCanvas
-          className="absolute inset-0"
-          data={data}
-          options={options}
-          highlighted={highlighted}
-          onReady={setRenderer}
-          onConnect={({ source, target }) => appendLine(`${formatName(source)} -> ${formatName(target)}`)}
-          onBackgroundDoubleClick={({ world }) => renderer && setDraft({ world, screen: renderer.worldToScreen(world) })}
-          onBackgroundClick={() => setExportOpen(false)}
-          onNodeClick={({ id }) => editorOpen && revealInSource(id)}
-        />
-      )}
-
-      {loaded && data.nodes.length === 0 && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-[var(--muted)]">
-          Double-click anywhere to add a node — or type in the editor.
-        </div>
-      )}
-
-      <div className="absolute top-4 left-4 z-20 flex items-center gap-2">
-        <Panel className="flex items-center gap-0.5 p-1">
-          <span className="flex items-center gap-1.5 px-2 text-[13px] font-semibold tracking-tight">
-            <Logo /> graph
-          </span>
-          <Divider />
-          <Button onClick={() => setEditorOpen((v) => !v)} title="Toggle editor (E)">
-            {editorOpen ? "Hide source" : "Edit source"}
-          </Button>
-          <Button onClick={share} title="Copy a link that opens this exact graph">
-            Share
-          </Button>
-          <div className="relative">
-            <Button onClick={() => setExportOpen((v) => !v)}>Export ▾</Button>
-            {exportOpen && (
-              <Panel className="absolute top-full left-0 mt-2 flex w-44 flex-col p-1">
-                <MenuItem onClick={() => exportAs("png")}>PNG</MenuItem>
-                <MenuItem onClick={() => exportAs("png-transparent")}>PNG, transparent</MenuItem>
-                <MenuItem onClick={() => exportAs("svg")}>SVG</MenuItem>
-                <MenuItem onClick={() => exportAs("copy")}>Copy image</MenuItem>
-              </Panel>
-            )}
-          </div>
-        </Panel>
-      </div>
-
-      {editorOpen && (
-        <div className="absolute top-[68px] bottom-4 left-4 z-10 w-[min(380px,calc(100vw-32px))]">
-          <EditorPanel
-            source={state.source}
-            onSource={(source) => update({ source })}
-            errors={parsed.errors}
-            stats={{ nodes: data.nodes.length, links: data.links.length }}
-            onClose={() => setEditorOpen(false)}
-            textareaRef={textarea}
+    <div className={`fixed inset-0 overflow-hidden text-foreground ${theme.light ? "" : "dark"}`} style={themeVars(theme)}>
+      <div
+        className="absolute inset-0"
+        onPointerDownCapture={() => {
+          swallowClick.current = editingRef.current !== null;
+          commitEdit();
+        }}
+      >
+        {loaded && (
+          <GraphCanvas
+            className="absolute inset-0"
+            data={data}
+            options={options}
+            highlighted={highlighted}
+            onReady={setRenderer}
+            onConnect={({ source, target }) => editSource((src) => appendLine(src, `${formatName(source)} -> ${formatName(target)}`))}
+            onBackgroundClick={({ world }) => !swallowClick.current && createNodeAt(world)}
+            onLinkClick={({ source, target }) => {
+              if (swallowClick.current) return;
+              const label = data.links.find((l) => l.source === source && l.target === target)?.label ?? "";
+              setEditing({ kind: "link", source, target, text: label });
+            }}
+            onNodeClick={({ id }) => !swallowClick.current && drawerOpen && revealInSource(id)}
           />
+        )}
+      </div>
+
+      {loaded && data.nodes.length === 0 && !editing && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+          Click anywhere to add a node.
         </div>
       )}
 
-      <div className="pointer-events-none absolute top-4 right-4 bottom-20 z-10 flex flex-col items-end">
-        <div className="pointer-events-auto flex max-h-full min-h-0">
-          {settingsOpen ? (
-            <SettingsPanel
-              settings={state.settings}
-              onSettings={(settings) => update({ settings })}
-              groups={state.groups}
-              onGroups={(groups) => update({ groups })}
-              theme={theme}
-              onTheme={(themeId) => update({ themeId })}
-              search={search}
-              onSearch={setSearch}
-              onAnimate={() => renderer?.replay(Math.min(8000, 1500 + data.nodes.length * 40))}
-              onClose={() => setSettingsOpen(false)}
-            />
-          ) : (
-            <Panel className="p-1">
-              <Button onClick={() => setSettingsOpen(true)} title="Graph settings (,)">
-                <GearIcon /> Settings
-              </Button>
-            </Panel>
-          )}
-        </div>
-      </div>
-
-      <div className="absolute right-4 bottom-4 z-10">
-        <Panel className="flex items-center p-1">
-          <Button onClick={() => renderer?.zoomBy(1 / 1.4)} title="Zoom out (-)">
-            −
-          </Button>
-          <Button onClick={() => renderer?.zoomToFit()} title="Fit graph (F)">
-            Fit
-          </Button>
-          <Button onClick={() => renderer?.zoomBy(1.4)} title="Zoom in (+)">
-            +
-          </Button>
-          <Divider />
-          <Button onClick={() => renderer?.reheat()} title="Shake the layout loose">
-            Shake
-          </Button>
-        </Panel>
-      </div>
-
-      {draft && (
-        <input
+      {editing && (
+        <Input
+          key={editKey}
+          ref={overlay}
           autoFocus
-          placeholder="Node name"
-          className="absolute z-30 w-40 -translate-x-1/2 -translate-y-1/2 rounded-md border border-[var(--accent)] bg-[var(--panel)] px-2.5 py-1.5 text-center text-xs text-[var(--fg)] shadow-xl outline-none backdrop-blur-xl"
-          style={{ left: draft.screen.x, top: draft.screen.y }}
+          value={editing.text}
+          placeholder={editing.kind === "node" ? editing.id : "weight"}
+          onChange={(e) => setEditing({ ...editing, text: e.target.value })}
           onKeyDown={(e) => {
-            if (e.key === "Enter") addDraftNode(e.currentTarget.value);
-            if (e.key === "Escape") setDraft(null);
+            if (e.key === "Enter") commitEdit();
+            else if (e.key === "Escape") cancelEdit();
           }}
-          onBlur={(e) => addDraftNode(e.currentTarget.value)}
+          onBlur={commitEdit}
+          style={{ width: Math.max(96, (editing.text || (editing.kind === "node" ? editing.id : "weight")).length * 8 + 28) }}
+          className="absolute top-0 left-0 z-30 h-7 border-primary bg-background px-2 text-center text-xs shadow-lg"
         />
       )}
 
-      {toast && (
-        <div className="pointer-events-none absolute bottom-6 left-1/2 z-40 -translate-x-1/2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-medium text-[var(--accent-fg)] shadow-xl">
-          {toast}
-        </div>
-      )}
+      <GraphDrawer
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        state={state}
+        update={update}
+        theme={theme}
+        errors={parsed.errors}
+        stats={{ nodes: data.nodes.length, links: data.links.length }}
+        search={search}
+        onSearch={setSearch}
+        textareaRef={textarea}
+        onAnimate={() => renderer?.replay(Math.min(8000, 1500 + data.nodes.length * 40))}
+        onZoom={zoom}
+        onExport={exportAs}
+        onShare={share}
+      />
+
+      <Toaster theme={theme.light ? "light" : "dark"} position="bottom-right" />
     </div>
   );
 }
 
-function chromeVars(theme: AppTheme): CSSProperties {
+/** Points shadcn's tokens at the active graph theme. */
+function themeVars(theme: AppTheme): CSSProperties {
   const { background, accent } = theme.graph;
-  const base = theme.light
-    ? {
-        "--panel": "rgba(255,255,255,0.82)",
-        "--fg": "#1f1f1f",
-        "--muted": "#6b6b6b",
-        "--line": "rgba(0,0,0,0.09)",
-        "--line-strong": "rgba(0,0,0,0.18)",
-        "--hover": "rgba(0,0,0,0.06)",
-        "--input": "rgba(0,0,0,0.04)",
-      }
-    : {
-        "--panel": "rgba(24,24,27,0.78)",
-        "--fg": "#e4e4e7",
-        "--muted": "#a1a1aa",
-        "--line": "rgba(255,255,255,0.08)",
-        "--line-strong": "rgba(255,255,255,0.2)",
-        "--hover": "rgba(255,255,255,0.08)",
-        "--input": "rgba(255,255,255,0.05)",
-      };
-  return { ...base, "--accent": accent, "--accent-fg": readableOn(accent), background: background ?? undefined } as CSSProperties;
+  return {
+    background: background ?? undefined,
+    "--background": background ?? undefined,
+    "--primary": accent,
+    "--primary-foreground": readableOn(accent),
+    "--ring": accent,
+  } as CSSProperties;
 }
 
 /** Black or white, whichever reads better on `hex`. */
@@ -337,8 +332,7 @@ function readableOn(hex: string): string {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex);
   if (!m) return "#ffffff";
   const [r, g, b] = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255);
-  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return luminance > 0.55 ? "#111111" : "#ffffff";
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55 ? "#111111" : "#ffffff";
 }
 
 function download(blob: Blob, filename: string) {
@@ -348,41 +342,4 @@ function download(blob: Blob, filename: string) {
   a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function MenuItem({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
-  return (
-    <button onClick={onClick} className="rounded-md px-2.5 py-1.5 text-left text-xs hover:bg-[var(--hover)]">
-      {children}
-    </button>
-  );
-}
-
-function Divider() {
-  return <span className="mx-1 h-4 w-px bg-[var(--line-strong)]" />;
-}
-
-function Logo() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" className="text-[var(--accent)]">
-      <g stroke="currentColor" strokeWidth="1.2" opacity="0.6">
-        <line x1="4" y1="4" x2="9" y2="9" />
-        <line x1="9" y1="9" x2="13" y2="5" />
-        <line x1="9" y1="9" x2="6" y2="13" />
-      </g>
-      <circle cx="4" cy="4" r="2" fill="currentColor" />
-      <circle cx="13" cy="5" r="1.6" fill="currentColor" />
-      <circle cx="6" cy="13" r="1.6" fill="currentColor" />
-      <circle cx="9" cy="9" r="2.6" fill="currentColor" />
-    </svg>
-  );
-}
-
-function GearIcon() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <circle cx="8" cy="8" r="2.2" />
-      <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" strokeLinecap="round" />
-    </svg>
-  );
 }
