@@ -332,7 +332,7 @@ export function GraphDrawer(props: Props) {
               <MousePointer2Icon />
             </ToggleGroupItem>
           </KeyTip>
-          <KeyTip label="Edit: add, link, rename, delete · Shift-drag to box-select" keys={["E"]}>
+          <KeyTip label="Edit: add, link, rename, delete" keys={["E"]}>
             <ToggleGroupItem value="edit" aria-label="Edit mode" className="size-8">
               <PencilIcon />
             </ToggleGroupItem>

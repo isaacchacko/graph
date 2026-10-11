@@ -315,11 +315,6 @@ export function GraphStudio() {
     [renderer],
   );
 
-  useEffect(() => {
-    if (!renderer) return;
-    renderer.setInsets({ left: drawerOpen && wide ? DRAWER_WIDTH_PX : 0 });
-  }, [renderer, drawerOpen, wide]);
-
   // Theme the whole document, so menus and tooltips portalled outside this tree match too.
   useEffect(() => {
     const root = document.documentElement;
@@ -392,94 +387,106 @@ export function GraphStudio() {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="fixed inset-0 overflow-hidden text-foreground" style={{ background: theme.graph.background ?? undefined }}>
+        {/* The graph's area: its left edge slides with the drawer, so the canvas resizes and its centre moves. */}
         <div
-          className="absolute inset-0"
-          onPointerDownCapture={() => {
-            swallowClick.current = editingRef.current !== null;
-            commitEdit();
-          }}
+          style={{ left: drawerOpen && wide ? DRAWER_WIDTH_PX : 0 }}
+          className="absolute inset-y-0 right-0 transition-[left] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
         >
-          {loaded && (
-            <GraphCanvas
-              className="absolute inset-0"
-              data={data}
-              options={options}
-              highlighted={highlighted}
-              selection={liveSelection}
-              onReady={setRenderer}
-              onConnect={({ source, target }) => {
-                editSource((src) => appendLine(src, `${formatName(source)} -> ${formatName(target)}`));
-                setSelection({ kind: "link", source, target });
-              }}
-              onBackgroundClick={({ world }) => {
-                if (swallowClick.current) return;
-                if (mode === "edit") createNodeAt(world);
-                else setSelection(null);
-              }}
-              onLinkClick={({ source, target }) => !swallowClick.current && setSelection({ kind: "link", source, target })}
-              onNodeClick={({ id }) => !swallowClick.current && setSelection({ kind: "node", id })}
-              onBoxSelect={({ ids }) => setSelection(ids.length ? { kind: "nodes", ids } : null)}
-              onNodeContextMenu={({ id, event }) => {
-                if (mode !== "edit") return;
-                event.preventDefault();
-                // Right-clicking any node of a box selection deletes the whole box.
-                remove(liveSelection?.kind === "nodes" && liveSelection.ids.includes(id) ? liveSelection : { kind: "node", id });
-              }}
-              onLinkContextMenu={({ source, target, event }) => {
-                if (mode !== "edit") return;
-                event.preventDefault();
-                remove({ kind: "link", source, target });
-              }}
-            />
-          )}
-        </div>
-
-        {loaded && data.nodes.length === 0 && !editing && (
           <div
-            style={{ paddingLeft: drawerOpen && wide ? DRAWER_WIDTH_PX : 0 }}
-            className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground transition-[padding] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+            className="absolute inset-0"
+            onPointerDownCapture={() => {
+              swallowClick.current = editingRef.current !== null;
+              commitEdit();
+            }}
           >
-            <span>{mode === "edit" ? "Click anywhere to add a node." : "Switch to edit mode (E) to add nodes."}</span>
+            {loaded && (
+              <GraphCanvas
+                className="absolute inset-0"
+                data={data}
+                options={options}
+                highlighted={highlighted}
+                selection={liveSelection}
+                onReady={setRenderer}
+                onConnect={({ source, target }) => {
+                  editSource((src) => appendLine(src, `${formatName(source)} -> ${formatName(target)}`));
+                  setSelection({ kind: "link", source, target });
+                }}
+                onBackgroundClick={({ world }) => {
+                  if (swallowClick.current) return;
+                  if (mode === "edit") createNodeAt(world);
+                  else setSelection(null);
+                }}
+                onLinkClick={({ source, target }) => !swallowClick.current && setSelection({ kind: "link", source, target })}
+                onNodeClick={({ id }) => !swallowClick.current && setSelection({ kind: "node", id })}
+                onBoxSelect={({ ids }) => setSelection(ids.length ? { kind: "nodes", ids } : null)}
+                onNodeContextMenu={({ id, event }) => {
+                  if (mode !== "edit") return;
+                  event.preventDefault();
+                  // Right-clicking any node of a box selection deletes the whole box.
+                  remove(liveSelection?.kind === "nodes" && liveSelection.ids.includes(id) ? liveSelection : { kind: "node", id });
+                }}
+                onLinkContextMenu={({ source, target, event }) => {
+                  if (mode !== "edit") return;
+                  event.preventDefault();
+                  remove({ kind: "link", source, target });
+                }}
+              />
+            )}
           </div>
-        )}
 
-        {editing ? (
-          <Input
-            key={anchorKey}
-            ref={(el) => {
-              overlay.current = el;
-            }}
-            autoFocus
-            value={editing.text}
-            placeholder={editing.kind === "node" ? "fruit name" : "weight"}
-            onChange={(e) => {
-              const ed = editingRef.current;
-              if (!ed) return;
-              setEditing(ed.kind === "node" ? renameTo(ed, e.target.value) : { ...ed, text: e.target.value });
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commitEdit();
-              else if (e.key === "Escape") cancelEdit();
-            }}
-            onBlur={commitEdit}
-            style={{ width: Math.max(96, (editingText || "fruit name").length * 8 + 28) }}
-            className="absolute top-0 left-0 z-30 h-7 border-primary bg-background px-2 text-center text-xs shadow-lg"
-          />
-        ) : (
-          anchor && (
-            <div
+          {loaded && data.nodes.length === 0 && !editing && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+              <span>{mode === "edit" ? "Click anywhere to add a node." : "Switch to edit mode (E) to add nodes."}</span>
+            </div>
+          )}
+
+          {editing ? (
+            <Input
               key={anchorKey}
               ref={(el) => {
                 overlay.current = el;
               }}
-              className={`pointer-events-none absolute top-0 left-0 z-30 border bg-background/90 px-1.5 py-0.5 text-[10px] whitespace-nowrap text-muted-foreground ${
-                anchor.kind === "node" ? "mt-5" : "mt-6"
-              }`}
-            >
-              {anchor.kind === "node" ? "type to rename · ⌫ delete" : "type a weight · ⌫ delete"}
+              autoFocus
+              value={editing.text}
+              placeholder={editing.kind === "node" ? "fruit name" : "weight"}
+              onChange={(e) => {
+                const ed = editingRef.current;
+                if (!ed) return;
+                setEditing(ed.kind === "node" ? renameTo(ed, e.target.value) : { ...ed, text: e.target.value });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") commitEdit();
+                else if (e.key === "Escape") cancelEdit();
+              }}
+              onBlur={commitEdit}
+              style={{ width: Math.max(96, (editingText || "fruit name").length * 8 + 28) }}
+              className="absolute top-0 left-0 z-30 h-7 border-primary bg-background px-2 text-center text-xs shadow-lg"
+            />
+          ) : (
+            anchor && (
+              <div
+                key={anchorKey}
+                ref={(el) => {
+                  overlay.current = el;
+                }}
+                className={`pointer-events-none absolute top-0 left-0 z-30 border bg-background/90 px-1.5 py-0.5 text-[10px] whitespace-nowrap text-muted-foreground ${
+                  anchor.kind === "node" ? "mt-5" : "mt-6"
+                }`}
+              >
+                {anchor.kind === "node" ? "type to rename · ⌫ delete" : "type a weight · ⌫ delete"}
+              </div>
+            )
+          )}
+
+          {liveSelection?.kind === "nodes" && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-6 flex justify-center">
+              <span className="border bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-lg backdrop-blur-xl">
+                {liveSelection.ids.length} node{liveSelection.ids.length === 1 ? "" : "s"} selected · ⌫ or right-click to delete · Esc to clear
+              </span>
             </div>
-          )
-        )}
+          )}
+
+        </div>
 
         <GraphDrawer
           open={drawerOpen}
@@ -504,17 +511,6 @@ export function GraphStudio() {
           onExport={exportAs}
           onShare={share}
         />
-
-        {liveSelection?.kind === "nodes" && (
-          <div
-            style={{ paddingLeft: drawerOpen && wide ? DRAWER_WIDTH_PX : 0 }}
-            className="pointer-events-none absolute inset-x-0 bottom-6 flex justify-center transition-[padding] duration-300"
-          >
-            <span className="border bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-lg backdrop-blur-xl">
-              {liveSelection.ids.length} node{liveSelection.ids.length === 1 ? "" : "s"} selected · ⌫ or right-click to delete · Esc to clear
-            </span>
-          </div>
-        )}
 
         <Toaster theme={theme.light ? "light" : "dark"} position="bottom-right" />
       </div>
