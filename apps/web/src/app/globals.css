@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html,
+body {
+  background: #1e1e1e;
+  color: #e4e4e7;
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  overscroll-behavior: none;
+}
+
+.slider {
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--line-strong);
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: 2px solid white;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+
+.slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--accent);
+  border: 2px solid white;
+}
+
+select option {
+  background: #27272a;
+  color: #e4e4e7;
+}
