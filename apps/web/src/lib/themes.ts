@@ -8,11 +8,45 @@ export interface AppTheme {
   palette: string[];
   /** Whether the chrome around the canvas should be light. */
   light?: boolean;
+  /**
+   * shadcn token overrides for the drawer and controls. Without them the
+   * chrome takes the canvas background and the stock light or dark tokens.
+   */
+  chrome?: Record<`--${string}`, string>;
+  /** Font for the chrome; defaults to the app's sans. */
+  font?: string;
 }
 
 const font = DARK_THEME.fontFamily;
+/** CSS variables are resolved to the real family before reaching the canvas. */
+const mono = "var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, monospace";
 
 export const THEMES: AppTheme[] = [
+  {
+    // From isaacchacko.co: a pale paper card over a green field, ink type, one terracotta accent.
+    id: "hive",
+    name: "Hive",
+    light: true,
+    graph: { background: "#a3c585", node: "#12200a", link: "#4a5e3a", text: "#12200a", accent: "#b9654c", fontFamily: mono },
+    palette: ["#b9654c", "#12200a", "#eef3e6", "#d9a441", "#3d6b8c", "#7d3c52"],
+    chrome: {
+      "--background": "#eef3e6",
+      "--foreground": "#12200a",
+      "--card": "#eef3e6",
+      "--card-foreground": "#12200a",
+      "--popover": "#eef3e6",
+      "--popover-foreground": "#12200a",
+      "--muted": "#dfe9d2",
+      "--muted-foreground": "#4a5e3a",
+      "--accent": "#dfe9d2",
+      "--accent-foreground": "#12200a",
+      "--secondary": "#dfe9d2",
+      "--secondary-foreground": "#12200a",
+      "--border": "#c9d8b7",
+      "--input": "#c9d8b7",
+    },
+    font: mono,
+  },
   {
     id: "vault",
     name: "Vault",

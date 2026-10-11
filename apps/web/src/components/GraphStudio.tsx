@@ -1,17 +1,18 @@
 "use client";
 
 import type { GraphRenderer, InteractionMode, PartialOptions, Point, Selection } from "@graph/renderer";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DRAWER_WIDTH_PX, GraphDrawer, type ExportKind } from "./GraphDrawer";
 import { GraphCanvas } from "./GraphCanvas";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { appendLine, deleteLink, deleteNode, replaceNameSpans, setLinkWeight } from "@/lib/edit";
 import { fruitName } from "@/lib/fruits";
 import { SESSION_PREFIX, useHistory } from "@/lib/history";
 import { arrowLinks, formatName, parseGraph, type ParseResult, type Span } from "@/lib/parse";
-import { presetById, type PresetId } from "@/lib/presets";
+import { useMediaQuery } from "@/lib/platform";
 import { decodeState, decorate, encodeState, matchesQuery, withDefaults, type AppState } from "@/lib/state";
 import { TEMPLATES, type Template } from "@/lib/templates";
 import { themeById, type AppTheme } from "@/lib/themes";
@@ -47,6 +48,7 @@ export function GraphStudio() {
   const [search, setSearch] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(true);
   const [mode, setMode] = useState<InteractionMode>("edit");
+  const wide = useMediaQuery("(min-width: 768px)");
   const [renderer, setRenderer] = useState<GraphRenderer | null>(null);
   const [spawnPoints, setSpawnPoints] = useState<Record<string, Point>>({});
   const [selection, setSelection] = useState<Selection>(null);
@@ -125,6 +127,10 @@ export function GraphStudio() {
   const liveSelection = useMemo<Selection>(() => {
     if (selection?.kind === "node") return parsed.data.nodes.some((n) => n.id === selection.id) ? selection : null;
     if (selection?.kind === "link") return parsed.data.links.some((l) => l.source === selection.source && l.target === selection.target) ? selection : null;
+    if (selection?.kind === "nodes") {
+      const ids = selection.ids.filter((id) => parsed.data.nodes.some((n) => n.id === id));
+      return ids.length ? { kind: "nodes", ids } : null;
+    }
     return null;
   }, [selection, parsed]);
 
@@ -132,7 +138,7 @@ export function GraphStudio() {
 
   const options = useMemo<PartialOptions>(() => {
     const { forces, nodeSize, linkThickness, textSize, textFadeThreshold, arrows } = state.settings;
-    return { forces, nodeSize, linkThickness, textSize, textFadeThreshold, arrows, mode, theme: theme.graph };
+    return { forces, nodeSize, linkThickness, textSize, textFadeThreshold, arrows, mode, theme: { ...theme.graph, fontFamily: resolveVars(theme.graph.fontFamily) } };
   }, [state.settings, theme, mode]);
 
   const highlighted = useMemo(
@@ -159,7 +165,7 @@ export function GraphStudio() {
     return { ...ed, id: target, text, renderId: collides ? null : target, lastPosition: position, changed: true };
   };
 
-  const startEdit = (sel: NonNullable<Selection>, text: string | null) => {
+  const startEdit = (sel: Exclude<Selection, null | { kind: "nodes" }>, text: string | null) => {
     if (sel.kind === "link") {
       const label = parsed.data.links.find((l) => l.source === sel.source && l.target === sel.target)?.label ?? "";
       setEditing({ kind: "link", source: sel.source, target: sel.target, text: text ?? label });
@@ -216,6 +222,7 @@ export function GraphStudio() {
 
   const remove = (target: NonNullable<Selection>) => {
     if (target.kind === "node") editSource((src) => deleteNode(src, parseGraph(src), target.id));
+    else if (target.kind === "nodes") editSource((src) => target.ids.reduce((acc, id) => deleteNode(acc, parseGraph(acc), id), src));
     else editSource((src) => deleteLink(src, parseGraph(src), target.source, target.target));
     setSelection(null);
   };
@@ -226,7 +233,7 @@ export function GraphStudio() {
     ? editing.kind === "node"
       ? ({ kind: "node", id: editing.id } as const)
       : ({ kind: "link", source: editing.source, target: editing.target } as const)
-    : mode === "edit"
+    : mode === "edit" && liveSelection?.kind !== "nodes"
       ? liveSelection
       : null;
   const anchorKey = anchor ? (anchor.kind === "node" ? `n:${anchor.id}` : `l:${anchor.source}\u0000${anchor.target}`) : null;
@@ -296,14 +303,7 @@ export function GraphStudio() {
     }
   };
 
-  const applyTemplate = (template: Template) =>
-    record((s) => ({
-      ...s,
-      source: template.source(),
-      settings: template.preset ? { ...presetById(template.preset).settings, showOrphans: s.settings.showOrphans } : s.settings,
-    }));
-
-  const applyPreset = (id: PresetId) => record((s) => ({ ...s, settings: { ...presetById(id).settings, showOrphans: s.settings.showOrphans } }));
+  const applyTemplate = (template: Template) => record((s) => ({ ...s, source: template.source() }));
 
   const zoom = useCallback(
     (action: "in" | "out" | "fit" | "shake") => {
@@ -317,11 +317,21 @@ export function GraphStudio() {
 
   useEffect(() => {
     if (!renderer) return;
-    const inset = () => renderer.setInsets({ left: drawerOpen && window.innerWidth >= 768 ? DRAWER_WIDTH_PX : 0 });
-    inset();
-    window.addEventListener("resize", inset);
-    return () => window.removeEventListener("resize", inset);
-  }, [renderer, drawerOpen]);
+    renderer.setInsets({ left: drawerOpen && wide ? DRAWER_WIDTH_PX : 0 });
+  }, [renderer, drawerOpen, wide]);
+
+  // Theme the whole document, so menus and tooltips portalled outside this tree match too.
+  useEffect(() => {
+    const root = document.documentElement;
+    const vars = themeVars(theme);
+    root.classList.toggle("dark", !theme.light);
+    for (const [name, value] of Object.entries(vars)) root.style.setProperty(name, value);
+    root.style.fontFamily = theme.font ?? "";
+    return () => {
+      for (const name of Object.keys(vars)) root.style.removeProperty(name);
+      root.style.fontFamily = "";
+    };
+  }, [theme]);
 
   // ── Keyboard ────────────────────────────────────────────────────────
 
@@ -339,24 +349,35 @@ export function GraphStudio() {
       }
       if (target.closest("input, textarea, select, [role=combobox]") || mod || e.altKey) return;
 
-      // With something selected in edit mode, typing edits it.
-      if (mode === "edit" && liveSelection) {
+      if (e.key === "Escape") {
+        if (liveSelection) setSelection(null);
+        else setDrawerOpen((v) => !v);
+        e.preventDefault();
+        return;
+      }
+
+      // A box selection only supports bulk delete; other keys fall through to the shortcuts.
+      if (mode === "edit" && liveSelection?.kind === "nodes" && (e.key === "Backspace" || e.key === "Delete")) {
+        remove(liveSelection);
+        e.preventDefault();
+        return;
+      }
+
+      // With one thing selected in edit mode, typing edits it.
+      if (mode === "edit" && liveSelection && liveSelection.kind !== "nodes") {
         if (e.key === "Backspace" || e.key === "Delete") remove(liveSelection);
         else if (e.key === "Enter" || e.key === "F2") startEdit(liveSelection, null);
-        else if (e.key === "Escape") setSelection(null);
         else if (e.key.length === 1) startEdit(liveSelection, e.key);
         else return;
         e.preventDefault();
         return;
       }
 
-      if (key === "v") setMode("select");
-      else if (key === "p") setMode("edit");
-      else if (key === "e") setDrawerOpen((v) => !v);
+      if (key === "s") setMode("select");
+      else if (key === "e") setMode("edit");
       else if (key === "f") zoom("fit");
       else if (key === "=" || key === "+") zoom("in");
       else if (key === "-") zoom("out");
-      else if (e.key === "Escape") setSelection(null);
       else return;
       e.preventDefault();
     };
@@ -371,118 +392,135 @@ export function GraphStudio() {
   const editingText = editing?.text ?? "";
 
   return (
-    <div className={`fixed inset-0 overflow-hidden text-foreground ${theme.light ? "" : "dark"}`} style={themeVars(theme)}>
-      <div
-        className="absolute inset-0"
-        onPointerDownCapture={() => {
-          swallowClick.current = editingRef.current !== null;
-          commitEdit();
-        }}
-      >
-        {loaded && (
-          <GraphCanvas
-            className="absolute inset-0"
-            data={data}
-            options={options}
-            highlighted={highlighted}
-            selection={liveSelection}
-            onReady={setRenderer}
-            onConnect={({ source, target }) => {
-              editSource((src) => appendLine(src, `${formatName(source)} -> ${formatName(target)}`));
-              setSelection({ kind: "link", source, target });
-            }}
-            onBackgroundClick={({ world }) => {
-              if (swallowClick.current) return;
-              if (mode === "edit") createNodeAt(world);
-              else setSelection(null);
-            }}
-            onLinkClick={({ source, target }) => !swallowClick.current && setSelection({ kind: "link", source, target })}
-            onNodeClick={({ id }) => !swallowClick.current && setSelection({ kind: "node", id })}
-            onNodeContextMenu={({ id, event }) => {
-              if (mode !== "edit") return;
-              event.preventDefault();
-              remove({ kind: "node", id });
-            }}
-            onLinkContextMenu={({ source, target, event }) => {
-              if (mode !== "edit") return;
-              event.preventDefault();
-              remove({ kind: "link", source, target });
-            }}
-          />
-        )}
-      </div>
-
-      {loaded && data.nodes.length === 0 && !editing && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-          {mode === "edit" ? "Click anywhere to add a node." : "Switch to edit mode (P) to add nodes."}
+    <TooltipProvider delayDuration={300}>
+      <div className="fixed inset-0 overflow-hidden text-foreground" style={{ background: theme.graph.background ?? undefined }}>
+        <div
+          className="absolute inset-0"
+          onPointerDownCapture={() => {
+            swallowClick.current = editingRef.current !== null;
+            commitEdit();
+          }}
+        >
+          {loaded && (
+            <GraphCanvas
+              className="absolute inset-0"
+              data={data}
+              options={options}
+              highlighted={highlighted}
+              selection={liveSelection}
+              onReady={setRenderer}
+              onConnect={({ source, target }) => {
+                editSource((src) => appendLine(src, `${formatName(source)} -> ${formatName(target)}`));
+                setSelection({ kind: "link", source, target });
+              }}
+              onBackgroundClick={({ world }) => {
+                if (swallowClick.current) return;
+                if (mode === "edit") createNodeAt(world);
+                else setSelection(null);
+              }}
+              onLinkClick={({ source, target }) => !swallowClick.current && setSelection({ kind: "link", source, target })}
+              onNodeClick={({ id }) => !swallowClick.current && setSelection({ kind: "node", id })}
+              onBoxSelect={({ ids }) => setSelection(ids.length ? { kind: "nodes", ids } : null)}
+              onNodeContextMenu={({ id, event }) => {
+                if (mode !== "edit") return;
+                event.preventDefault();
+                // Right-clicking any node of a box selection deletes the whole box.
+                remove(liveSelection?.kind === "nodes" && liveSelection.ids.includes(id) ? liveSelection : { kind: "node", id });
+              }}
+              onLinkContextMenu={({ source, target, event }) => {
+                if (mode !== "edit") return;
+                event.preventDefault();
+                remove({ kind: "link", source, target });
+              }}
+            />
+          )}
         </div>
-      )}
 
-      {editing ? (
-        <Input
-          key={anchorKey}
-          ref={(el) => {
-            overlay.current = el;
-          }}
-          autoFocus
-          value={editing.text}
-          placeholder={editing.kind === "node" ? "fruit name" : "weight"}
-          onChange={(e) => {
-            const ed = editingRef.current;
-            if (!ed) return;
-            setEditing(ed.kind === "node" ? renameTo(ed, e.target.value) : { ...ed, text: e.target.value });
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitEdit();
-            else if (e.key === "Escape") cancelEdit();
-          }}
-          onBlur={commitEdit}
-          style={{ width: Math.max(96, (editingText || "fruit name").length * 8 + 28) }}
-          className="absolute top-0 left-0 z-30 h-7 border-primary bg-background px-2 text-center text-xs shadow-lg"
-        />
-      ) : (
-        anchor && (
+        {loaded && data.nodes.length === 0 && !editing && (
           <div
+            style={{ paddingLeft: drawerOpen && wide ? DRAWER_WIDTH_PX : 0 }}
+            className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground transition-[padding] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+          >
+            <span>{mode === "edit" ? "Click anywhere to add a node." : "Switch to edit mode (E) to add nodes."}</span>
+          </div>
+        )}
+
+        {editing ? (
+          <Input
             key={anchorKey}
             ref={(el) => {
               overlay.current = el;
             }}
-            className={`pointer-events-none absolute top-0 left-0 z-30 border bg-background/90 px-1.5 py-0.5 text-[10px] whitespace-nowrap text-muted-foreground ${
-              anchor.kind === "node" ? "mt-5" : "mt-6"
-            }`}
+            autoFocus
+            value={editing.text}
+            placeholder={editing.kind === "node" ? "fruit name" : "weight"}
+            onChange={(e) => {
+              const ed = editingRef.current;
+              if (!ed) return;
+              setEditing(ed.kind === "node" ? renameTo(ed, e.target.value) : { ...ed, text: e.target.value });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitEdit();
+              else if (e.key === "Escape") cancelEdit();
+            }}
+            onBlur={commitEdit}
+            style={{ width: Math.max(96, (editingText || "fruit name").length * 8 + 28) }}
+            className="absolute top-0 left-0 z-30 h-7 border-primary bg-background px-2 text-center text-xs shadow-lg"
+          />
+        ) : (
+          anchor && (
+            <div
+              key={anchorKey}
+              ref={(el) => {
+                overlay.current = el;
+              }}
+              className={`pointer-events-none absolute top-0 left-0 z-30 border bg-background/90 px-1.5 py-0.5 text-[10px] whitespace-nowrap text-muted-foreground ${
+                anchor.kind === "node" ? "mt-5" : "mt-6"
+              }`}
+            >
+              {anchor.kind === "node" ? "type to rename · ⌫ delete" : "type a weight · ⌫ delete"}
+            </div>
+          )
+        )}
+
+        <GraphDrawer
+          open={drawerOpen}
+          onOpenChange={setDrawerOpen}
+          mode={mode}
+          onMode={setMode}
+          onUndo={history.undo}
+          onRedo={history.redo}
+          canUndo={history.canUndo}
+          canRedo={history.canRedo}
+          state={state}
+          update={update}
+          onTemplate={applyTemplate}
+          theme={theme}
+          errors={parsed.errors}
+          highlights={highlights}
+          search={search}
+          onSearch={setSearch}
+          textareaRef={textarea}
+          onAnimate={() => renderer?.replay(Math.min(8000, 1500 + data.nodes.length * 40))}
+          onZoom={zoom}
+          onExport={exportAs}
+          onShare={share}
+        />
+
+        {liveSelection?.kind === "nodes" && (
+          <div
+            style={{ paddingLeft: drawerOpen && wide ? DRAWER_WIDTH_PX : 0 }}
+            className="pointer-events-none absolute inset-x-0 bottom-6 flex justify-center transition-[padding] duration-300"
           >
-            {anchor.kind === "node" ? "type to rename · ⌫ delete" : "type a weight · ⌫ delete"}
+            <span className="border bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-lg backdrop-blur-xl">
+              {liveSelection.ids.length} node{liveSelection.ids.length === 1 ? "" : "s"} selected · ⌫ or right-click to delete · Esc to clear
+            </span>
           </div>
-        )
-      )}
+        )}
 
-      <GraphDrawer
-        open={drawerOpen}
-        onOpenChange={setDrawerOpen}
-        mode={mode}
-        onMode={setMode}
-        onUndo={history.undo}
-        onRedo={history.redo}
-        canUndo={history.canUndo}
-        canRedo={history.canRedo}
-        state={state}
-        update={update}
-        onTemplate={applyTemplate}
-        onPreset={applyPreset}
-        theme={theme}
-        errors={parsed.errors}
-        highlights={highlights}
-        search={search}
-        onSearch={setSearch}
-        textareaRef={textarea}
-        onAnimate={() => renderer?.replay(Math.min(8000, 1500 + data.nodes.length * 40))}
-        onZoom={zoom}
-        onExport={exportAs}
-        onShare={share}
-      />
-
-      <Toaster theme={theme.light ? "light" : "dark"} position="bottom-right" />
-    </div>
+        <Toaster theme={theme.light ? "light" : "dark"} position="bottom-right" />
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -494,6 +532,7 @@ function highlightRanges(source: string, parsed: ParseResult, selection: Selecti
   const toRange = (s: Span): [number, number] => [lineStarts[s.line] + s.start, lineStarts[s.line] + s.end];
 
   if (selection.kind === "node") return (parsed.names.get(selection.id) ?? []).map(toRange);
+  if (selection.kind === "nodes") return selection.ids.flatMap((id) => (parsed.names.get(id) ?? []).map(toRange));
   // Every arrow that makes this link.
   return parsed.statements.flatMap((st) =>
     st.arrows
@@ -506,16 +545,23 @@ function highlightRanges(source: string, parsed: ParseResult, selection: Selecti
   );
 }
 
-/** Points shadcn's tokens at the active graph theme. */
-function themeVars(theme: AppTheme): CSSProperties {
+/** shadcn tokens for the active theme: its accent, and either its chrome colours or the canvas background. */
+function themeVars(theme: AppTheme): Record<string, string> {
   const { background, accent } = theme.graph;
   return {
-    background: background ?? undefined,
-    "--background": background ?? undefined,
+    ...(background ? { "--background": background } : {}),
     "--primary": accent,
     "--primary-foreground": readableOn(accent),
     "--ring": accent,
-  } as CSSProperties;
+    ...theme.chrome,
+  };
+}
+
+/** Swaps `var(--x)` for its current value; a canvas cannot resolve CSS variables itself. */
+function resolveVars(value: string): string {
+  if (typeof document === "undefined") return value;
+  const styles = getComputedStyle(document.documentElement);
+  return value.replace(/var\((--[\w-]+)\)/g, (_, name: string) => styles.getPropertyValue(name).trim() || "monospace");
 }
 
 /** Black or white, whichever reads better on `hex`. */

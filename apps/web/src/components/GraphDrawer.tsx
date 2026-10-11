@@ -21,6 +21,7 @@ import {
 import type { Ref } from "react";
 import { SliderField, SwitchField } from "./fields";
 import { HighlightTextarea } from "./HighlightTextarea";
+import { KeyTip } from "./KeyTip";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +29,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ParseError } from "@/lib/parse";
-import { matchingPreset, PRESETS, type PresetId } from "@/lib/presets";
+import { useIsMac } from "@/lib/platform";
 import { COLOR_BY, DEFAULT_SETTINGS, type AppState, type ColorBy, type Group, type Settings } from "@/lib/state";
 import { TEMPLATES, type Template } from "@/lib/templates";
 import { THEMES, type AppTheme } from "@/lib/themes";
@@ -51,7 +52,6 @@ interface Props {
   /** `merge` folds rapid changes to the same control into one undo step. */
   update: (patch: Partial<AppState>, merge?: string) => void;
   onTemplate: (template: Template) => void;
-  onPreset: (id: PresetId) => void;
   theme: AppTheme;
   errors: ParseError[];
   highlights: [number, number][];
@@ -77,7 +77,7 @@ export function GraphDrawer(props: Props) {
       groups.map((g, k) => (k === i ? { ...g, ...patch } : g)),
       `group.${i}`,
     );
-  const preset = matchingPreset(settings);
+  const mod = useIsMac() ? "⌘" : "Ctrl";
 
   return (
     <aside
@@ -94,15 +94,17 @@ export function GraphDrawer(props: Props) {
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
           <Logo />
           <span className="text-sm font-semibold tracking-tight">graph</span>
-          <Button variant="ghost" size="icon-sm" asChild className="ml-auto">
-            <a href={REPO_URL} target="_blank" rel="noreferrer" title="Source on GitHub" aria-label="Source on GitHub">
-              <GitHubIcon />
-            </a>
-          </Button>
+          <KeyTip label="Source on GitHub">
+            <Button variant="ghost" size="icon-sm" asChild className="ml-auto">
+              <a href={REPO_URL} target="_blank" rel="noreferrer" aria-label="Source on GitHub">
+                <GitHubIcon />
+              </a>
+            </Button>
+          </KeyTip>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <Accordion type="multiple" defaultValue={["source", "presets"]} className="px-4">
+          <Accordion type="multiple" defaultValue={["source", "display"]} className="px-4">
             <Section value="source" title="Source">
               <div className="flex gap-2">
                 <Select
@@ -148,35 +150,13 @@ export function GraphDrawer(props: Props) {
               )}
               <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                 <Hint keys="A -> B, C">link, fan out</Hint>
+                <Hint keys="A -> B -> C">chain</Hint>
+                <Hint keys="A <- B · A -- B">reverse · undirected</Hint>
                 <Hint keys="A -(3)-> B">weighted link</Hint>
                 <Hint keys="A {red 2}">colour, size</Hint>
-                <Hint keys="V · select">drag nodes, pan</Hint>
-                <Hint keys="P · edit">click: new node · drag node→node: edge</Hint>
-                <Hint keys="click + type">rename node / weigh edge</Hint>
-                <Hint keys="⌫ · right-click">delete node or edge</Hint>
-                <Hint keys="⌘Z · ⇧⌘Z">undo · redo</Hint>
+                <Hint keys={'"x, y" -> z'}>quote names with , {"{ }"} ( or arrows</Hint>
+                <Hint keys="# or //">comment</Hint>
               </dl>
-            </Section>
-
-            <Section value="presets" title="Presets">
-              <Select value={preset?.id ?? "custom"} onValueChange={(id) => id !== "custom" && props.onPreset(id as PresetId)}>
-                <SelectTrigger size="sm" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PRESETS.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value="custom" disabled>
-                    Custom
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                {preset?.description ?? "Your own mix. Pick a preset to start from a known setup."}
-              </p>
             </Section>
 
             <Section value="filters" title="Filters">
@@ -281,18 +261,26 @@ export function GraphDrawer(props: Props) {
 
             <Section value="view" title="View">
               <div className="grid grid-cols-4 gap-2">
-                <Button variant="outline" size="sm" onClick={() => props.onZoom("out")} title="Zoom out (-)">
-                  <MinusIcon />
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => props.onZoom("fit")} title="Fit (F)">
-                  <ScanIcon />
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => props.onZoom("in")} title="Zoom in (+)">
-                  <PlusIcon />
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => props.onZoom("shake")} title="Shake the layout loose">
-                  <ShuffleIcon />
-                </Button>
+                <KeyTip label="Zoom out" keys={["-"]}>
+                  <Button variant="outline" size="sm" onClick={() => props.onZoom("out")} aria-label="Zoom out">
+                    <MinusIcon />
+                  </Button>
+                </KeyTip>
+                <KeyTip label="Fit to screen" keys={["F"]}>
+                  <Button variant="outline" size="sm" onClick={() => props.onZoom("fit")} aria-label="Fit to screen">
+                    <ScanIcon />
+                  </Button>
+                </KeyTip>
+                <KeyTip label="Zoom in" keys={["+"]}>
+                  <Button variant="outline" size="sm" onClick={() => props.onZoom("in")} aria-label="Zoom in">
+                    <PlusIcon />
+                  </Button>
+                </KeyTip>
+                <KeyTip label="Shake the layout loose">
+                  <Button variant="outline" size="sm" onClick={() => props.onZoom("shake")} aria-label="Shake the layout loose">
+                    <ShuffleIcon />
+                  </Button>
+                </KeyTip>
               </div>
             </Section>
 
@@ -320,15 +308,17 @@ export function GraphDrawer(props: Props) {
       </div>
 
       <div className="absolute top-3 left-full ml-3 flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={() => onOpenChange(!open)}
-          title={open ? "Collapse (E)" : "Expand (E)"}
-          className="bg-background/90 backdrop-blur-xl"
-        >
-          {open ? <ChevronLeftIcon /> : <ChevronRightIcon />}
-        </Button>
+        <KeyTip label={open ? "Hide options" : "Show options"} keys={["Esc"]}>
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => onOpenChange(!open)}
+            aria-label={open ? "Hide options" : "Show options"}
+            className="bg-background/90 backdrop-blur-xl"
+          >
+            {open ? <ChevronLeftIcon /> : <ChevronRightIcon />}
+          </Button>
+        </KeyTip>
         <ToggleGroup
           type="single"
           variant="outline"
@@ -337,20 +327,33 @@ export function GraphDrawer(props: Props) {
           onValueChange={(v) => v && props.onMode(v as InteractionMode)}
           className="bg-background/90 backdrop-blur-xl"
         >
-          <ToggleGroupItem value="select" title="Select (V): drag nodes, pan" aria-label="Select mode" className="size-8">
-            <MousePointer2Icon />
-          </ToggleGroupItem>
-          <ToggleGroupItem value="edit" title="Edit (P): add nodes and edges, rename, delete" aria-label="Edit mode" className="size-8">
-            <PencilIcon />
-          </ToggleGroupItem>
+          <KeyTip label="Select: drag nodes, pan" keys={["S"]}>
+            <ToggleGroupItem value="select" aria-label="Select mode" className="size-8">
+              <MousePointer2Icon />
+            </ToggleGroupItem>
+          </KeyTip>
+          <KeyTip label="Edit: add, link, rename, delete · Shift-drag to box-select" keys={["E"]}>
+            <ToggleGroupItem value="edit" aria-label="Edit mode" className="size-8">
+              <PencilIcon />
+            </ToggleGroupItem>
+          </KeyTip>
         </ToggleGroup>
         <div className="flex bg-background/90 backdrop-blur-xl">
-          <Button variant="outline" size="icon" onClick={props.onUndo} disabled={!props.canUndo} title="Undo (⌘Z)" aria-label="Undo">
-            <Undo2Icon />
-          </Button>
-          <Button variant="outline" size="icon" onClick={props.onRedo} disabled={!props.canRedo} title="Redo (⇧⌘Z)" aria-label="Redo" className="-ml-px">
-            <Redo2Icon />
-          </Button>
+          {/* Disabled buttons swallow hover, so the tooltips hang off a wrapper. */}
+          <KeyTip label="Undo" keys={[mod, "Z"]}>
+            <span>
+              <Button variant="outline" size="icon" onClick={props.onUndo} disabled={!props.canUndo} aria-label="Undo">
+                <Undo2Icon />
+              </Button>
+            </span>
+          </KeyTip>
+          <KeyTip label="Redo" keys={[mod, "⇧", "Z"]}>
+            <span className="-ml-px">
+              <Button variant="outline" size="icon" onClick={props.onRedo} disabled={!props.canRedo} aria-label="Redo">
+                <Redo2Icon />
+              </Button>
+            </span>
+          </KeyTip>
         </div>
       </div>
     </aside>

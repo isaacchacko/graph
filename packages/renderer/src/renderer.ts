@@ -11,7 +11,8 @@ type Gesture =
   | { kind: "pan"; pointerId: number; startX: number; startY: number; camX: number; camY: number; moved: boolean; link: SceneLink | null }
   | { kind: "drag"; pointerId: number; node: SceneNode; startX: number; startY: number; moved: boolean }
   | { kind: "connect"; pointerId: number; node: SceneNode; startX: number; startY: number; moved: boolean; to: Point; target: SceneNode | null }
-  | { kind: "pinch"; distance: number; scale: number; center: Point };
+  | { kind: "pinch"; distance: number; scale: number; center: Point }
+  | { kind: "marquee"; pointerId: number; from: Point; to: Point };
 
 export interface Insets {
   top: number;
@@ -480,9 +481,16 @@ export class GraphRenderer {
       { camera: this.camera, width: this.width, height: this.height, pixelRatio: this.pixelRatio },
       {
         connectPreview: this.connectPreview(),
-        selectedNode: this.selection?.kind === "node" ? (this.nodeById.get(this.selection.id) ?? null) : null,
+        selectedNodes: this.selectedNodes(),
+        marquee: this.gesture?.kind === "marquee" ? { from: this.gesture.from, to: this.gesture.to } : null,
       },
     );
+  }
+
+  private selectedNodes(): SceneNode[] {
+    const sel = this.selection;
+    const ids = sel?.kind === "node" ? [sel.id] : sel?.kind === "nodes" ? sel.ids : [];
+    return ids.flatMap((id) => this.nodeById.get(id) ?? []);
   }
 
   private connectPreview() {
@@ -499,7 +507,7 @@ export class GraphRenderer {
     const highlighted = focus ? null : this.highlighted;
     const dim = this.options.dimOpacity;
     const sel = this.selection;
-    const selectedNode = sel?.kind === "node" ? sel.id : null;
+    const selectedNodeIds = new Set(this.selectedNodes().map((n) => n.id));
     const selectedLink = sel?.kind === "link" ? linkKey(sel.source, sel.target) : null;
     const fadeStep = 1 - Math.exp(-dt / FADE_TIME_MS);
     const appearStep = dt / APPEAR_TIME_MS;
@@ -522,7 +530,7 @@ export class GraphRenderer {
         accent = hit ? 1 : 0;
         emphasis = hit ? 1 : 0;
       }
-      if (n.id === selectedNode) emphasis = 1;
+      if (selectedNodeIds.has(n.id)) emphasis = 1;
       n.fade = approach(n.fade, fade, fadeStep);
       n.accent = approach(n.accent, accent, fadeStep);
       n.emphasis = approach(n.emphasis, emphasis, fadeStep);
@@ -687,6 +695,14 @@ export class GraphRenderer {
       return;
     }
 
+    if (e.shiftKey && this.options.mode === "edit") {
+      const at = this.screenToWorld(p);
+      this.gesture = { kind: "marquee", pointerId: e.pointerId, from: at, to: at };
+      this.canvas.style.cursor = "crosshair";
+      this.schedule();
+      return;
+    }
+
     const node = this.nodeAt(p);
     const last = this.lastNodeClick;
     this.lastNodeClick = null;
@@ -771,6 +787,12 @@ export class GraphRenderer {
         this.schedule();
         return;
       }
+      case "marquee": {
+        if (e.pointerId !== g.pointerId) return;
+        g.to = this.screenToWorld(p);
+        this.schedule();
+        return;
+      }
       case "connect": {
         if (e.pointerId !== g.pointerId) return;
         if (!g.moved && Math.hypot(p.x - g.startX, p.y - g.startY) < CLICK_SLOP) return;
@@ -801,7 +823,12 @@ export class GraphRenderer {
     if (g.pointerId !== e.pointerId) return;
     this.gesture = null;
 
-    if (g.kind === "drag") {
+    if (g.kind === "marquee") {
+      const [x0, x1] = [Math.min(g.from.x, g.to.x), Math.max(g.from.x, g.to.x)];
+      const [y0, y1] = [Math.min(g.from.y, g.to.y), Math.max(g.from.y, g.to.y)];
+      const ids = this.nodes.filter((n) => n.x >= x0 && n.x <= x1 && n.y >= y0 && n.y <= y1).map((n) => n.id);
+      this.emit("boxSelect", { ids });
+    } else if (g.kind === "drag") {
       this.releaseDrag(g.node);
       if (!g.moved && this.options.mode === "select") this.emit("nodeClick", { id: g.node.id, event: e });
     } else if (g.kind === "pan" && !g.moved) {

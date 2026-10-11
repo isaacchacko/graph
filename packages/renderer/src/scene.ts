@@ -43,7 +43,9 @@ export interface DrawExtras {
   labelOpacity?: number;
   /** In-progress drag-to-connect; `valid` once the pointer is over another node. */
   connectPreview?: { from: SceneNode; to: Point; valid: boolean } | null;
-  selectedNode?: SceneNode | null;
+  selectedNodes?: SceneNode[];
+  /** Shift-drag selection box, in world units. */
+  marquee?: { from: Point; to: Point } | null;
 }
 
 const BASE_RADIUS = 4;
@@ -104,13 +106,30 @@ export function drawScene(
   if (extras.connectPreview) drawConnectPreview(ctx, extras.connectPreview, options, camera.scale);
   drawLinkLabels(ctx, links, options, camera.scale, bounds, extras.labelOpacity);
   drawNodes(ctx, nodes, radii, options, bounds);
-  if (extras.selectedNode) {
-    const n = extras.selectedNode;
+  if (extras.selectedNodes?.length) {
     ctx.strokeStyle = options.theme.accent;
     ctx.lineWidth = 2 / camera.scale;
     ctx.beginPath();
-    ctx.arc(n.x, n.y, radii[indexOf.get(n)!] + 4 / camera.scale, 0, Math.PI * 2);
+    for (const n of extras.selectedNodes) {
+      const r = radii[indexOf.get(n)!] + 4 / camera.scale;
+      ctx.moveTo(n.x + r, n.y);
+      ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+    }
     ctx.stroke();
+  }
+  if (extras.marquee) {
+    const { from, to } = extras.marquee;
+    const x = Math.min(from.x, to.x);
+    const y = Math.min(from.y, to.y);
+    const w = Math.abs(to.x - from.x);
+    const h = Math.abs(to.y - from.y);
+    ctx.fillStyle = options.theme.accent;
+    ctx.globalAlpha = 0.12;
+    ctx.fillRect(x, y, w, h);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = options.theme.accent;
+    ctx.lineWidth = 1 / camera.scale;
+    ctx.strokeRect(x, y, w, h);
   }
   drawLabels(ctx, nodes, radii, options, camera.scale, bounds, extras.labelOpacity);
 }

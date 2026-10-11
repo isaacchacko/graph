@@ -1,15 +1,11 @@
-import type { PresetId } from "./presets";
-
 export interface Template {
   id: string;
   name: string;
   source: () => string;
-  /** Applied along with the template, when it is made to be seen a particular way. */
-  preset?: PresetId;
 }
 
 const DIJKSTRA = `# Weighted digraph for Dijkstra / Bellman–Ford.
-# Edge lengths follow the weights under the "Edge relaxation" preset.
+# Turn on Display → "Weights set edge length" to lay it out by weight.
 s -(7)-> a
 s -(2)-> b
 s -(9)-> c
@@ -24,6 +20,7 @@ e -(3)-> d
 `;
 
 const SCC = `# Directed graph: three cycles (non-trivial SCCs) plus nodes on no cycle.
+# Set Display → Colour by → Strongly connected component to see them.
 a -> b -> c -> a
 b -> d
 d -> e -> f -> d
@@ -55,7 +52,7 @@ i0 -- i2 -- i4 -- i1 -- i3 -- i0
 `;
 
 function binaryTree(): string {
-  const lines = ["# Complete binary tree, depth 5, heap-indexed."];
+  const lines = ["# Complete binary tree, depth 5, heap-indexed. Try Colour by → BFS depth."];
   for (let i = 1; i < 32; i++) lines.push(`${i} -> ${2 * i}, ${2 * i + 1}`);
   return lines.join("\n") + "\n";
 }
@@ -84,7 +81,7 @@ function complete(): string {
   return lines.join("\n") + "\n";
 }
 
-const STARTER = `# Edit this text or the canvas: the hints below show how.
+const STARTER = `# Edit this text, or draw on the canvas in edit mode (E).
 
 graph -> renderer, website
 renderer -> physics, camera, hover, labels
@@ -92,7 +89,7 @@ physics -> "link force", "repel force", "center force"
 website -> editor, settings, export, "share link"
 export -(2)-> PNG, SVG
 settings -> themes, groups, forces
-graph {#8f7cf7 2}
+graph {2}
 `;
 
 const SOLAR = `Sun {#ffb703 4} -> Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune
@@ -179,17 +176,17 @@ function galaxy(): string {
 
 export const TEMPLATES: Template[] = [
   { id: "starter", name: "Starter", source: () => STARTER },
-  { id: "dijkstra", name: "Shortest paths (weighted)", source: () => DIJKSTRA, preset: "relaxation" },
-  { id: "scc", name: "Strongly connected components", source: () => SCC, preset: "scc" },
-  { id: "prereqs", name: "Course prerequisites (DAG)", source: () => PREREQS, preset: "dag" },
-  { id: "binary-tree", name: "Binary tree", source: binaryTree, preset: "bfs" },
-  { id: "petersen", name: "Petersen graph", source: () => PETERSEN, preset: "fruchterman-reingold" },
-  { id: "grid", name: "Grid graph", source: grid, preset: "fruchterman-reingold" },
-  { id: "complete", name: "Complete graph K7", source: complete, preset: "fruchterman-reingold" },
+  { id: "dijkstra", name: "Shortest paths (weighted)", source: () => DIJKSTRA },
+  { id: "scc", name: "Strongly connected components", source: () => SCC },
+  { id: "prereqs", name: "Course prerequisites (DAG)", source: () => PREREQS },
+  { id: "binary-tree", name: "Binary tree", source: binaryTree },
+  { id: "petersen", name: "Petersen graph", source: () => PETERSEN },
+  { id: "grid", name: "Grid graph", source: grid },
+  { id: "complete", name: "Complete graph K7", source: complete },
   { id: "knowledge", name: "Second brain", source: () => KNOWLEDGE },
   { id: "solar", name: "Solar system", source: () => SOLAR },
   { id: "org", name: "Org chart", source: () => ORG },
-  { id: "social", name: "Social network", source: socialNetwork, preset: "components" },
+  { id: "social", name: "Social network", source: socialNetwork },
   { id: "tree", name: "Random tree", source: tree },
   { id: "galaxy", name: "Galaxy", source: galaxy },
 ];

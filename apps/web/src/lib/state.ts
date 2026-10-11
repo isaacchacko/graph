@@ -51,7 +51,7 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export function withDefaults(partial: Partial<AppState> & { source: string }): AppState {
   return {
-    themeId: "vault",
+    themeId: "hive",
     groups: [],
     ...partial,
     settings: {

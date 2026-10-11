@@ -19,11 +19,16 @@ export interface GraphLinkInput {
   length?: number;
 }
 
-export type Selection = { kind: "node"; id: string } | { kind: "link"; source: string; target: string } | null;
+export type Selection =
+  | { kind: "node"; id: string }
+  | { kind: "nodes"; ids: string[] }
+  | { kind: "link"; source: string; target: string }
+  | null;
 
 /**
  * - `select`: dragging a node moves it, dragging the background pans.
- * - `edit`: dragging from a node draws a link; double-click and hold a node to move it.
+ * - `edit`: dragging from a node draws a link; double-click and hold a node to
+ *   move it; shift-drag anywhere draws a selection box.
  */
 export type InteractionMode = "select" | "edit";
 
@@ -88,6 +93,8 @@ export interface RendererEvents {
   /** Fired when the user drags from one node and releases on another. */
   connect: { source: string; target: string };
   linkClick: { source: string; target: string; event: PointerEvent };
+  /** A shift-drag box in edit mode was released over these nodes. */
+  boxSelect: { ids: string[] };
   nodeContextMenu: { id: string; event: MouseEvent };
   linkContextMenu: { source: string; target: string; event: MouseEvent };
   zoom: { scale: number };

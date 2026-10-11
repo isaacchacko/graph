@@ -22,6 +22,7 @@ const EVENTS: (keyof RendererEvents)[] = [
   "backgroundDoubleClick",
   "connect",
   "linkClick",
+  "boxSelect",
   "nodeContextMenu",
   "linkContextMenu",
   "zoom",
