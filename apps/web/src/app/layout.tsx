@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "graph · pretty graphs, quickly",
+  title: "graph: pretty graphs, pretty quickly",
   description: "Type a few links, get a living force-directed graph. Export it as PNG or SVG, or share a link.",
 };
 
