@@ -250,10 +250,12 @@ export class GraphRenderer {
     const ctx = canvas.getContext("2d")!;
     const theme = { ...this.options.theme };
     if (options.transparent) theme.background = null;
+    // Links must point at the copied nodes: drawScene looks up each target's radius by identity.
+    const settled = new Map(this.nodes.map((n) => [n, { ...n, fade: 1, accent: 0, emphasis: 0, appear: 1 }]));
     drawScene(
       ctx,
-      this.nodes.map((n) => ({ ...n, fade: 1, accent: 0, emphasis: 0, appear: 1 })),
-      this.links.map((l) => ({ ...l, fade: 1, accent: 0 })),
+      [...settled.values()],
+      this.links.map((l) => ({ ...l, source: settled.get(l.source)!, target: settled.get(l.target)!, fade: 1, accent: 0 })),
       { ...this.options, theme },
       {
         camera: { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2, scale: 1 },
