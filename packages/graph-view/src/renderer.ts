@@ -93,7 +93,8 @@ export class GraphRenderer {
     this.sim = new ForceSimulation<SceneNode>({ ...this.options.forces });
 
     this.canvas = document.createElement("canvas");
-    this.canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;outline:none";
+    this.canvas.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;outline:none";
+    this.canvas.style.touchAction = this.options.zoom ? "none" : "pan-y";
     if (getComputedStyle(container).position === "static") container.style.position = "relative";
     container.appendChild(this.canvas);
     const ctx = this.canvas.getContext("2d");
@@ -127,6 +128,7 @@ export class GraphRenderer {
       options.forces &&
       Object.entries(options.forces).some(([k, v]) => this.options.forces[k as keyof RendererOptions["forces"]] !== v);
     this.options = mergeOptions(this.options, options);
+    this.canvas.style.touchAction = this.options.zoom ? "none" : "pan-y";
     if (forcesChanged) {
       this.sim.forces = { ...this.options.forces };
       this.sim.reheat(0.4);
@@ -757,7 +759,7 @@ export class GraphRenderer {
 
     switch (g.kind) {
       case "pinch": {
-        if (this.pointers.size < 2) return;
+        if (this.pointers.size < 2 || !this.options.zoom) return;
         const [a, b] = [...this.pointers.values()];
         const distance = Math.hypot(a.x - b.x, a.y - b.y);
         this.followFit = false;
@@ -874,6 +876,7 @@ export class GraphRenderer {
   };
 
   private onWheel = (e: WheelEvent): void => {
+    if (!this.options.zoom) return;
     e.preventDefault();
     this.followFit = false;
     this.cameraTarget = null;

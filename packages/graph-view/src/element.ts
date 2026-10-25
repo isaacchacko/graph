@@ -17,13 +17,13 @@ const Base = typeof HTMLElement === "undefined" ? (class {} as typeof HTMLElemen
  * ```
  *
  * Attributes: `theme` (`dark`, `light`, or `auto` to follow the OS, the default),
- * `arrows`, `mode` (`select` or `edit`). Properties: `source`, `data` and
+ * `arrows`, `mode` (`select` or `edit`), `no-zoom` (the wheel scrolls the page instead). Properties: `source`, `data` and
  * `options` override the text and attributes, and `renderer` is the underlying
  * {@link GraphRenderer}. Renderer events are re-dispatched as `CustomEvent`s of
  * the same name (`nodeClick`, `connect`, …) carrying the payload in `detail`.
  */
 export class GraphViewElement extends Base {
-  static observedAttributes = ["theme", "arrows", "mode"];
+  static observedAttributes = ["theme", "arrows", "mode", "no-zoom"];
 
   renderer: GraphRenderer | null = null;
   private _source: string | null = null;
@@ -96,6 +96,7 @@ export class GraphViewElement extends Base {
     return {
       theme: resolveTheme(theme),
       arrows: this.hasAttribute("arrows"),
+      zoom: !this.hasAttribute("no-zoom"),
       ...(mode === "select" || mode === "edit" ? { mode: mode as InteractionMode } : {}),
       ...this._options,
     };

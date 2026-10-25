@@ -25,6 +25,7 @@ The text inside the tag is the graph. Change it (or set `.source`) and the graph
 | `theme` | `auto` (default, follows the OS), `dark`, `light` |
 | `arrows` | present to draw arrowheads |
 | `mode` | `select` (default: drag nodes, pan) or `edit` (drag node→node to emit `connect`) |
+| `no-zoom` | present to let the wheel scroll the page instead of zooming the graph |
 
 Size it with CSS. It is `display: block; height: 400px` until you say otherwise.
 
@@ -126,7 +127,7 @@ Make a graph at [graph.isaacchacko.com](https://graph.isaacchacko.com), open *Ex
 | `setInsets({ top, right, bottom, left })` | keeps framing clear of overlaid UI |
 | `destroy()` | removes the canvas and listeners |
 
-**Options**: `theme` (`background`, `node`, `link`, `text`, `accent`, `fontFamily`), `forces` (`centerForce`, `repelForce`, `linkForce`, `linkDistance`), `nodeSize`, `linkThickness`, `textSize`, `arrows`, `mode`, `textFadeThreshold`, `dimOpacity`.
+**Options**: `theme` (`background`, `node`, `link`, `text`, `accent`, `fontFamily`), `forces` (`centerForce`, `repelForce`, `linkForce`, `linkDistance`), `nodeSize`, `linkThickness`, `textSize`, `arrows`, `mode`, `zoom`, `textFadeThreshold`, `dimOpacity`.
 
 **Node fields**: `id`, `label`, `color`, `size`, `x`, `y`. **Link fields**: `source`, `target`, `label`, `length`.
 

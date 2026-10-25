@@ -33,6 +33,7 @@ export const DEFAULT_OPTIONS: RendererOptions = {
   textSize: 1,
   arrows: false,
   mode: "select",
+  zoom: true,
   textFadeThreshold: 0,
   dimOpacity: 0.15,
 };

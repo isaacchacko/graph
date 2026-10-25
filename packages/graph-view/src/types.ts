@@ -71,6 +71,11 @@ export interface RendererOptions {
   arrows: boolean;
   mode: InteractionMode;
   /**
+   * Whether the user can zoom (wheel, trackpad pinch, touch pinch). Off, the wheel
+   * scrolls the page through the graph; the camera still fits itself.
+   */
+  zoom: boolean;
+  /**
    * Zoom level (log2) below which labels disappear. Higher hides labels
    * until you zoom further in.
    */
