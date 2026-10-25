@@ -1,17 +1,17 @@
 "use client";
 
-import type { GraphRenderer, InteractionMode, Point, Selection } from "graph-view";
+import type { GraphRenderer, InteractionMode, Point, Selection } from "@isaacchacko/graph";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DRAWER_WIDTH_PX, GraphDrawer, type ExportKind } from "./GraphDrawer";
-import { Graph } from "graph-view/react";
+import { Graph } from "@isaacchacko/graph/react";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { appendLine, deleteLink, deleteNode, replaceNameSpans, setLinkWeight } from "@/lib/edit";
 import { fruitName } from "@/lib/fruits";
 import { SESSION_PREFIX, useHistory } from "@/lib/history";
-import { arrowLinks, formatName, parseGraph, type ParseResult, type Span } from "graph-view";
+import { arrowLinks, formatName, parseGraph, type ParseResult, type Span } from "@isaacchacko/graph";
 import { useMediaQuery } from "@/lib/platform";
 import { renderData, renderOptions } from "@/lib/render";
 import { decodeState, encodeState, matchesQuery, withDefaults, type AppState } from "@/lib/state";

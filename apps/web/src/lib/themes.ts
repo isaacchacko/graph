@@ -1,4 +1,4 @@
-import { DARK_THEME, type Theme } from "graph-view";
+import { DARK_THEME, type Theme } from "@isaacchacko/graph";
 
 export interface AppTheme {
   id: string;

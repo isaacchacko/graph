@@ -1,4 +1,4 @@
-import { arrowLinks, formatArrow, formatName, linkKey, type Arrow, type NodeRef, type ParseResult, type Span, type Statement } from "graph-view";
+import { arrowLinks, formatArrow, formatName, linkKey, type Arrow, type NodeRef, type ParseResult, type Span, type Statement } from "@isaacchacko/graph";
 
 /** Source edits made from the canvas. Each returns the new source text. */
 

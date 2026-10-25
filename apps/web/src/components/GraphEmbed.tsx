@@ -1,7 +1,7 @@
 "use client";
 
-import { parseGraph } from "graph-view";
-import { Graph } from "graph-view/react";
+import { parseGraph } from "@isaacchacko/graph";
+import { Graph } from "@isaacchacko/graph/react";
 import { useEffect, useMemo, useState } from "react";
 import { renderData, renderOptions } from "@/lib/render";
 import { decodeState, DEFAULT_SETTINGS, encodeState, withDefaults, type AppState } from "@/lib/state";

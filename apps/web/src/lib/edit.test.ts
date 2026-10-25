@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { appendLine, deleteLink, deleteNode, renameNode, setLinkWeight } from "./edit";
 import { fruitName, FRUITS } from "./fruits";
-import { parseGraph } from "graph-view";
+import { parseGraph } from "@isaacchacko/graph";
 
 const rename = (src: string, from: string, to: string) => renameNode(src, parseGraph(src), from, to);
 const weigh = (src: string, from: string, to: string, w: string) => setLinkWeight(src, parseGraph(src), from, to, w);

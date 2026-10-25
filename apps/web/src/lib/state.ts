@@ -1,4 +1,4 @@
-import { DEFAULT_FORCES, type ForceSettings, type GraphData } from "graph-view";
+import { DEFAULT_FORCES, type ForceSettings, type GraphData } from "@isaacchacko/graph";
 import { bfsDepth, connectedComponents, degrees, stronglyConnectedComponents } from "./algorithms";
 
 export interface Group {

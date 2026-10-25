@@ -1,6 +1,6 @@
 "use client";
 
-import type { ForceSettings, InteractionMode } from "graph-view";
+import type { ForceSettings, InteractionMode } from "@isaacchacko/graph";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -29,7 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import type { ParseError } from "graph-view";
+import type { ParseError } from "@isaacchacko/graph";
 import { useIsMac } from "@/lib/platform";
 import { COLOR_BY, DEFAULT_SETTINGS, type AppState, type ColorBy, type Group, type Settings } from "@/lib/state";
 import { TEMPLATES, type Template } from "@/lib/templates";

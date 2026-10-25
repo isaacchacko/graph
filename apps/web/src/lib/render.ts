@@ -1,4 +1,4 @@
-import type { GraphData, InteractionMode, PartialOptions } from "graph-view";
+import type { GraphData, InteractionMode, PartialOptions } from "@isaacchacko/graph";
 import { decorate, type Group, type Settings } from "./state";
 import type { AppTheme } from "./themes";
 

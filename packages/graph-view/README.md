@@ -1,4 +1,4 @@
-# graph-view
+# @isaacchacko/graph
 
 Pretty, living force-directed graphs from a few lines of text. Write `A -> B, C` and you get a graph that settles into place, responds to hover, drag, pan and zoom, and exports to PNG or SVG.
 
@@ -9,7 +9,7 @@ It is the renderer behind [graph.isaacchacko.com](https://graph.isaacchacko.com)
 ### 1. No build step: one `<script>` and one tag
 
 ```html
-<script src="https://unpkg.com/graph-view"></script>
+<script src="https://unpkg.com/@isaacchacko/graph"></script>
 
 <graph-view arrows>
   graph -> renderer, website
@@ -41,11 +41,11 @@ The same script also exposes everything below as `window.GraphView`.
 ### 2. React
 
 ```sh
-npm i graph-view
+npm i @isaacchacko/graph
 ```
 
 ```tsx
-import { Graph } from "graph-view/react";
+import { Graph } from "@isaacchacko/graph/react";
 
 <Graph source={"A -> B, C\nB -> C"} theme="light" onNodeClick={({ id }) => alert(id)} />;
 ```
@@ -67,13 +67,13 @@ It works in Next.js server-component trees as is (it ships `"use client"`).
 ### 3. Web component in a bundler (Vue, Svelte, Astro, plain TS…)
 
 ```ts
-import "graph-view/element"; // registers <graph-view>
+import "@isaacchacko/graph/element"; // registers <graph-view>
 ```
 
 ### 4. Plain TypeScript
 
 ```ts
-import { GraphRenderer, parseGraph, LIGHT_THEME } from "graph-view";
+import { GraphRenderer, parseGraph, LIGHT_THEME } from "@isaacchacko/graph";
 
 const graph = new GraphRenderer(document.getElementById("graph")!, { theme: LIGHT_THEME, arrows: true });
 graph.setData(parseGraph("A -> B -> C").data);

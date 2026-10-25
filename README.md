@@ -18,7 +18,7 @@ Sun {gold 3} -> Earth -> Moon
 
 | Path | What it is |
 | --- | --- |
-| `packages/graph-view` | [`graph-view`](packages/graph-view/README.md): the renderer and the language as a package: a dependency-free canvas renderer, a React component and a `<graph-view>` tag |
+| `packages/graph-view` | [`@isaacchacko/graph`](packages/graph-view/README.md): the renderer and the language as a package: a dependency-free canvas renderer, a React component and a `<graph-view>` tag |
 | `apps/web` | Next.js + shadcn/ui site: one left drawer holding the source editor, Obsidian-style graph settings, themes, PNG/SVG export and share links |
 
 ```sh
@@ -30,7 +30,7 @@ pnpm typecheck
 
 ## Use it in your own page
 
-Everything the site draws comes from the [`graph-view`](packages/graph-view/README.md) package, which works anywhere:
+Everything the site draws comes from the [`@isaacchacko/graph`](packages/graph-view/README.md) package, which works anywhere:
 
 ```html
 <script src="https://graph.isaacchacko.com/graph-view.js"></script>
@@ -42,13 +42,13 @@ Everything the site draws comes from the [`graph-view`](packages/graph-view/READ
 ```
 
 ```tsx
-import { Graph } from "graph-view/react";
+import { Graph } from "@isaacchacko/graph/react";
 
 <Graph source="A -> B, C" theme="light" onNodeClick={({ id }) => console.log(id)} />;
 ```
 
 ```ts
-import { GraphRenderer, parseGraph } from "graph-view";
+import { GraphRenderer, parseGraph } from "@isaacchacko/graph";
 
 const graph = new GraphRenderer(container, { arrows: true });
 graph.setData(parseGraph("A -> B -> C").data);
