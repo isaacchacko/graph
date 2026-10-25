@@ -88,7 +88,24 @@ graph.destroy();
 
 The container must have a size; the canvas fills it and follows it as it resizes.
 
-### 5. Just an iframe
+### 5. At build time, or on a server
+
+No browser needed: `settle` lays a graph out with the renderer's own physics, and `renderSvg` draws it.
+
+```ts
+import { parseGraph, renderSvg, settle } from "@isaacchacko/graph";
+
+const svg = renderSvg(parseGraph("A -> B -> C").data, { arrows: true }); // lays it out first if it has no positions
+
+// Or settle once, ship the SVG for the first paint, then hand the same layout to the
+// live renderer in the browser, which starts from it instead of unfolding from scratch.
+const laidOut = settle(parseGraph(source).data);
+const picture = renderSvg(laidOut, { theme: { background: null, node: "var(--ink, #333)" } });
+```
+
+In SVG output, theme colours can be CSS variables, so the page's stylesheet themes the picture.
+
+### 6. Just an iframe
 
 Make a graph at [graph.isaacchacko.com](https://graph.isaacchacko.com), open *Export & share*, and press *Copy embed code*. You can also write the URL by hand:
 
@@ -124,6 +141,7 @@ Make a graph at [graph.isaacchacko.com](https://graph.isaacchacko.com), open *Ex
 | `reheat(alpha?)` | shakes the layout loose |
 | `setHighlighted(ids \| null)`, `setSelection(sel)` | emphasis |
 | `toPNG(opts?)`, `toSVG(opts?)` | exports cropped to the graph |
+| `settle(data, forces?)`, `renderSvg(data, options?, exportOptions?)` | functions, not methods: layout and SVG without a DOM |
 | `setInsets({ top, right, bottom, left })` | keeps framing clear of overlaid UI |
 | `destroy()` | removes the canvas and listeners |
 

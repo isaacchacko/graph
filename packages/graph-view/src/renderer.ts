@@ -1,8 +1,10 @@
-import { DEFAULT_OPTIONS } from "./defaults";
-import { drawScene, nodeRadius, type Camera, type SceneLink, type SceneNode } from "./scene";
+import { DEFAULT_OPTIONS, mergeOptions } from "./defaults";
+import { drawScene, GOLDEN_ANGLE, newSceneNode, nodeRadius, packTight, sceneBounds, type Camera, type SceneLink, type SceneNode } from "./scene";
 import { ForceSimulation } from "./simulation";
 import { buildSvg, type ExportOptions } from "./export";
-import type { GraphData, Point, RendererEvents, RendererOptions, Selection } from "./types";
+import type { GraphData, PartialOptions, Point, RendererEvents, RendererOptions, Selection } from "./types";
+
+export type { PartialOptions };
 
 type Listener<K extends keyof RendererEvents> = (payload: RendererEvents[K]) => void;
 type ListenerMap = { [K in keyof RendererEvents]?: Set<Listener<K>> };
@@ -21,11 +23,6 @@ export interface Insets {
   left: number;
 }
 
-export interface PartialOptions extends Partial<Omit<RendererOptions, "forces" | "theme">> {
-  forces?: Partial<RendererOptions["forces"]>;
-  theme?: Partial<RendererOptions["theme"]>;
-}
-
 const MIN_SCALE = 0.02;
 const MAX_SCALE = 8;
 const CLICK_SLOP = 4;
@@ -37,7 +34,6 @@ const APPEAR_TIME_MS = 260;
 const CAMERA_TIME_MS = 140;
 const FIT_PADDING = 48;
 const EPSILON = 0.002;
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 /**
  * An interactive force-directed graph drawn on a 2D canvas.
@@ -305,23 +301,7 @@ export class GraphRenderer {
       if (byId.has(input.id)) continue;
       let node = previous.get(input.id);
       if (!node) {
-        node = {
-          id: input.id,
-          label: "",
-          color: null,
-          sizeMul: 1,
-          x: input.x ?? NaN,
-          y: input.y ?? NaN,
-          vx: 0,
-          vy: 0,
-          fx: null,
-          fy: null,
-          degree: 0,
-          fade: 1,
-          accent: 0,
-          emphasis: 0,
-          appear: 0,
-        };
+        node = newSceneNode(input);
         fresh.push(node);
       }
       node.label = input.label ?? input.id;
@@ -383,15 +363,7 @@ export class GraphRenderer {
   /** Seeds new nodes next to an already-placed neighbour, or on a spiral. */
   private placeNewNodes(fresh: SceneNode[], startingOver: boolean): void {
     if (startingOver) {
-      // Start the whole graph packed tight and let repulsion unfold it: an
-      // expanding layout untangles itself far better than one seeded wide.
-      fresh.forEach((node, i) => {
-        if (!Number.isNaN(node.x) && !Number.isNaN(node.y)) return;
-        const r = 10 * Math.sqrt(i + 0.5);
-        const angle = i * GOLDEN_ANGLE;
-        node.x = Math.cos(angle) * r;
-        node.y = Math.sin(angle) * r;
-      });
+      packTight(fresh);
       return;
     }
     const spread = Math.max(this.options.forces.linkDistance * 0.25, 20);
@@ -590,20 +562,7 @@ export class GraphRenderer {
   }
 
   private worldBounds(): { left: number; right: number; top: number; bottom: number } {
-    if (this.nodes.length === 0) return { left: -100, right: 100, top: -100, bottom: 100 };
-    let left = Infinity;
-    let right = -Infinity;
-    let top = Infinity;
-    let bottom = -Infinity;
-    const labelRoom = 12 * this.options.textSize * 1.6;
-    for (const n of this.nodes) {
-      const r = nodeRadius({ ...n, appear: 1 }, this.options);
-      left = Math.min(left, n.x - r);
-      right = Math.max(right, n.x + r);
-      top = Math.min(top, n.y - r);
-      bottom = Math.max(bottom, n.y + r + labelRoom);
-    }
-    return { left, right, top, bottom };
+    return sceneBounds(this.nodes, this.options);
   }
 
   private fitCamera(): Camera {
@@ -919,15 +878,6 @@ export class GraphRenderer {
     const set = this.listeners[event] as Set<Listener<K>> | undefined;
     set?.forEach((listener) => listener(payload));
   }
-}
-
-function mergeOptions(base: RendererOptions, patch: PartialOptions): RendererOptions {
-  return {
-    ...base,
-    ...patch,
-    forces: { ...base.forces, ...patch.forces },
-    theme: { ...base.theme, ...patch.theme },
-  } as RendererOptions;
 }
 
 function linkKey(a: string, b: string): string {

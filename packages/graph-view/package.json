@@ -1,6 +1,6 @@
 {
   "name": "@isaacchacko/graph",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Pretty, living force-directed graphs from a few lines of text. Obsidian-style graph view as a dependency-free canvas renderer, a React component and a <graph-view> HTML tag.",
   "license": "MIT",
   "author": "Isaac Chacko",

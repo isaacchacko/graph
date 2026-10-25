@@ -1,4 +1,4 @@
-import type { ForceSettings, RendererEvents, RendererOptions, Theme } from "./types";
+import type { ForceSettings, PartialOptions, RendererEvents, RendererOptions, Theme } from "./types";
 
 export const DEFAULT_FORCES: ForceSettings = {
   centerForce: 0.5,
@@ -62,4 +62,13 @@ export function resolveTheme(theme: ThemeInput): Theme {
   if (theme === "dark") return DARK_THEME;
   if (theme === "light") return LIGHT_THEME;
   return { ...DARK_THEME, ...theme };
+}
+
+export function mergeOptions(base: RendererOptions, patch: PartialOptions): RendererOptions {
+  return {
+    ...base,
+    ...patch,
+    forces: { ...base.forces, ...patch.forces },
+    theme: { ...base.theme, ...patch.theme },
+  } as RendererOptions;
 }

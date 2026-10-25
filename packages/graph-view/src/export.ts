@@ -38,17 +38,17 @@ export function buildSvg(
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f(x0)} ${f(y0)} ${f(width)} ${f(height)}" width="${Math.ceil(width)}" height="${Math.ceil(height)}">`,
   ];
   if (theme.background && !transparent) {
-    out.push(`<rect x="${f(x0)}" y="${f(y0)}" width="${f(width)}" height="${f(height)}" fill="${escape(theme.background)}"/>`);
+    out.push(`<rect x="${f(x0)}" y="${f(y0)}" width="${f(width)}" height="${f(height)}" ${paint("fill", theme.background)}/>`);
   }
 
-  out.push(`<g stroke="${escape(theme.link)}" stroke-width="${options.linkThickness}" stroke-linecap="round">`);
+  out.push(`<g ${paint("stroke", theme.link)} stroke-width="${options.linkThickness}" stroke-linecap="round">`);
   for (const { source: s, target: t } of links) {
     if (s !== t) out.push(`<line x1="${f(s.x)}" y1="${f(s.y)}" x2="${f(t.x)}" y2="${f(t.y)}"/>`);
   }
   out.push("</g>");
 
   if (options.arrows) {
-    out.push(`<g fill="${escape(theme.link)}">`);
+    out.push(`<g ${paint("fill", theme.link)}>`);
     for (const { source: s, target: t } of links) {
       const dx = t.x - s.x;
       const dy = t.y - s.y;
@@ -78,23 +78,23 @@ export function buildSvg(
       const y = (s.y + t.y) / 2;
       const w = label.length * size * 0.6 + size * 0.6;
       if (theme.background && !transparent) {
-        out.push(`<rect x="${f(x - w / 2)}" y="${f(y - size * 0.7)}" width="${f(w)}" height="${f(size * 1.4)}" fill="${escape(theme.background)}"/>`);
+        out.push(`<rect x="${f(x - w / 2)}" y="${f(y - size * 0.7)}" width="${f(w)}" height="${f(size * 1.4)}" ${paint("fill", theme.background)}/>`);
       }
-      out.push(`<text x="${f(x)}" y="${f(y)}" fill="${escape(theme.text)}">${escape(label)}</text>`);
+      out.push(`<text x="${f(x)}" y="${f(y)}" ${paint("fill", theme.text)}>${escape(label)}</text>`);
     }
     out.push("</g>");
   }
 
-  out.push(`<g fill="${escape(theme.node)}">`);
+  out.push(`<g ${paint("fill", theme.node)}>`);
   for (const n of nodes) {
-    const fill = n.color ? ` fill="${escape(n.color)}"` : "";
+    const fill = n.color ? ` ${paint("fill", n.color)}` : "";
     out.push(`<circle cx="${f(n.x)}" cy="${f(n.y)}" r="${f(radius.get(n)!)}"${fill}/>`);
   }
   out.push("</g>");
 
   if (labels) {
     out.push(
-      `<g fill="${escape(theme.text)}" font-family="${escape(theme.fontFamily)}" font-size="${f(fontSize)}" text-anchor="middle" dominant-baseline="hanging">`,
+      `<g ${paint("fill", theme.text)} font-family="${escape(theme.fontFamily)}" font-size="${f(fontSize)}" text-anchor="middle" dominant-baseline="hanging">`,
     );
     for (const n of nodes) {
       if (!n.label) continue;
@@ -106,6 +106,11 @@ export function buildSvg(
 
   out.push("</svg>");
   return out.join("\n");
+}
+
+/** `fill="red"`, or `style="fill:var(--ink)"` for a CSS variable, which an attribute can't hold. */
+function paint(property: "fill" | "stroke", color: string): string {
+  return /^\s*var\(/.test(color) ? `style="${property}:${escape(color)}"` : `${property}="${escape(color)}"`;
 }
 
 function escape(s: string): string {

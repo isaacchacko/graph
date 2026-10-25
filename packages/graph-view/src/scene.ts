@@ -1,6 +1,6 @@
 import { mixColors } from "./color";
 import type { SimLink, SimNode } from "./simulation";
-import type { Point, RendererOptions } from "./types";
+import type { GraphNodeInput, Point, RendererOptions } from "./types";
 
 export interface SceneNode extends SimNode {
   id: string;
@@ -49,10 +49,65 @@ export interface DrawExtras {
 }
 
 const BASE_RADIUS = 4;
+export const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const BASE_FONT = 12;
 const MIN_FOCUSED_FONT_PX = 11;
 const ALPHA_STEPS = 20;
 const ACCENT_STEPS = 8;
+
+/** A node not yet drawn: unplaced (NaN) unless the input gives a position, and still to grow in. */
+export function newSceneNode(input: GraphNodeInput): SceneNode {
+  return {
+    id: input.id,
+    label: input.label ?? input.id,
+    color: input.color ?? null,
+    sizeMul: input.size ?? 1,
+    x: input.x ?? NaN,
+    y: input.y ?? NaN,
+    vx: 0,
+    vy: 0,
+    fx: null,
+    fy: null,
+    degree: 0,
+    fade: 1,
+    accent: 0,
+    emphasis: 0,
+    appear: 0,
+  };
+}
+
+/**
+ * Places a whole new graph packed tight, on a golden-angle spiral, for
+ * repulsion to unfold: an expanding layout untangles itself far better than
+ * one seeded wide. Nodes that already have a position keep it.
+ */
+export function packTight(nodes: SceneNode[]): void {
+  nodes.forEach((node, i) => {
+    if (!Number.isNaN(node.x) && !Number.isNaN(node.y)) return;
+    const r = 10 * Math.sqrt(i + 0.5);
+    const angle = i * GOLDEN_ANGLE;
+    node.x = Math.cos(angle) * r;
+    node.y = Math.sin(angle) * r;
+  });
+}
+
+/** The world-space box the nodes and their labels take up. */
+export function sceneBounds(nodes: readonly SceneNode[], options: RendererOptions): { left: number; right: number; top: number; bottom: number } {
+  if (nodes.length === 0) return { left: -100, right: 100, top: -100, bottom: 100 };
+  let left = Infinity;
+  let right = -Infinity;
+  let top = Infinity;
+  let bottom = -Infinity;
+  const labelRoom = 12 * options.textSize * 1.6;
+  for (const n of nodes) {
+    const r = nodeRadius({ ...n, appear: 1 }, options);
+    left = Math.min(left, n.x - r);
+    right = Math.max(right, n.x + r);
+    top = Math.min(top, n.y - r);
+    bottom = Math.max(bottom, n.y + r + labelRoom);
+  }
+  return { left, right, top, bottom };
+}
 
 export function nodeRadius(node: SceneNode, options: RendererOptions): number {
   const grow = 1 - Math.pow(1 - node.appear, 3);

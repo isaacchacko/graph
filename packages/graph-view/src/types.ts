@@ -48,6 +48,10 @@ export interface ForceSettings {
   linkDistance: number;
 }
 
+/**
+ * Colours are any CSS colour. In SVG output (`toSVG`, `renderSvg`) they may
+ * also be CSS variables, e.g. `var(--ink, #333)`, which the canvas can't draw.
+ */
 export interface Theme {
   /** `null` leaves the canvas transparent. */
   background: string | null;
@@ -103,4 +107,9 @@ export interface RendererEvents {
   nodeContextMenu: { id: string; event: MouseEvent };
   linkContextMenu: { source: string; target: string; event: MouseEvent };
   zoom: { scale: number };
+}
+
+export interface PartialOptions extends Partial<Omit<RendererOptions, "forces" | "theme">> {
+  forces?: Partial<RendererOptions["forces"]>;
+  theme?: Partial<RendererOptions["theme"]>;
 }
