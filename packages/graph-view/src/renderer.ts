@@ -101,7 +101,7 @@ export class GraphRenderer {
     this.ctx = ctx;
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
-    this.resizeObserver.observe(container);
+    this.resizeObserver.observe(this.canvas);
     this.resize();
 
     this.canvas.addEventListener("pointerdown", this.onPointerDown);
@@ -621,9 +621,10 @@ export class GraphRenderer {
   }
 
   private resize(): void {
-    const rect = this.container.getBoundingClientRect();
-    this.width = Math.max(1, rect.width);
-    this.height = Math.max(1, rect.height);
+    // The layout size, not getBoundingClientRect(): a CSS transform on an ancestor would skew
+    // that, and nothing fires to correct it when the transform ends.
+    this.width = Math.max(1, this.canvas.clientWidth);
+    this.height = Math.max(1, this.canvas.clientHeight);
     this.pixelRatio = window.devicePixelRatio || 1;
     this.canvas.width = Math.round(this.width * this.pixelRatio);
     this.canvas.height = Math.round(this.height * this.pixelRatio);
@@ -635,8 +636,12 @@ export class GraphRenderer {
   // ── Interaction ───────────────────────────────────────────────────────
 
   private localPoint(e: MouseEvent): Point {
+    // Client coordinates are post-transform; scale them back to the canvas's own pixels.
     const rect = this.canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    return {
+      x: ((e.clientX - rect.left) * this.width) / rect.width,
+      y: ((e.clientY - rect.top) * this.height) / rect.height,
+    };
   }
 
   private nodeAt(screen: Point): SceneNode | null {
