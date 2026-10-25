@@ -1,4 +1,4 @@
-import type { GraphData } from "@graph/renderer";
+import type { GraphData } from "graph-view";
 
 /** Weakly connected components: ignores direction. Index per node id. */
 export function connectedComponents(data: GraphData): Map<string, number> {

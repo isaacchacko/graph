@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatName, parseGraph } from "./parse";
+import { formatName, parseGraph } from "../src/parse";
 
 const ids = (src: string) => parseGraph(src).data.nodes.map((n) => n.id);
 const links = (src: string) => parseGraph(src).data.links.map((l) => `${l.source}>${l.target}${l.label ? `=${l.label}` : ""}`);

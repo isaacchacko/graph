@@ -1,9 +1,10 @@
 "use client";
 
-import type { ForceSettings, InteractionMode } from "@graph/renderer";
+import type { ForceSettings, InteractionMode } from "graph-view";
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
+  CodeIcon,
   CopyIcon,
   ImageIcon,
   LinkIcon,
@@ -28,7 +29,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import type { ParseError } from "@/lib/parse";
+import type { ParseError } from "graph-view";
 import { useIsMac } from "@/lib/platform";
 import { COLOR_BY, DEFAULT_SETTINGS, type AppState, type ColorBy, type Group, type Settings } from "@/lib/state";
 import { TEMPLATES, type Template } from "@/lib/templates";
@@ -61,7 +62,7 @@ interface Props {
   onAnimate: () => void;
   onZoom: (action: "in" | "out" | "fit" | "shake") => void;
   onExport: (kind: ExportKind) => void;
-  onShare: () => void;
+  onShare: (kind: "link" | "embed") => void;
 }
 
 export function GraphDrawer(props: Props) {
@@ -299,8 +300,11 @@ export function GraphDrawer(props: Props) {
                   <CopyIcon /> Copy image
                 </Button>
               </div>
-              <Button size="sm" className="w-full" onClick={props.onShare}>
+              <Button size="sm" className="w-full" onClick={() => props.onShare("link")}>
                 <LinkIcon /> Copy share link
+              </Button>
+              <Button variant="outline" size="sm" className="w-full" onClick={() => props.onShare("embed")}>
+                <CodeIcon /> Copy embed code
               </Button>
             </Section>
           </Accordion>

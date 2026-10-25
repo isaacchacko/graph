@@ -1,4 +1,4 @@
-import type { GraphData, GraphLinkInput, GraphNodeInput } from "@graph/renderer";
+import type { GraphData, GraphLinkInput, GraphNodeInput } from "./types";
 
 /**
  * The graph language, one statement per line:

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bfsDepth, connectedComponents, degrees, stronglyConnectedComponents } from "./algorithms";
-import { parseGraph } from "./parse";
+import { parseGraph } from "graph-view";
 
 const groupsOf = (m: Map<string, number>) => {
   const groups = new Map<number, string[]>();

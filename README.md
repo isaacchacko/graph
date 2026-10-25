@@ -18,32 +18,49 @@ Sun {gold 3} -> Earth -> Moon
 
 | Path | What it is |
 | --- | --- |
-| `packages/renderer` | `@graph/renderer`: a dependency-free, framework-agnostic graph renderer (canvas + force simulation) |
+| `packages/graph-view` | [`graph-view`](packages/graph-view/README.md): the renderer and the language as a package: a dependency-free canvas renderer, a React component and a `<graph-view>` tag |
 | `apps/web` | Next.js + shadcn/ui site: one left drawer holding the source editor, Obsidian-style graph settings, themes, PNG/SVG export and share links |
 
 ```sh
 pnpm install
-pnpm dev          # http://localhost:3000
+pnpm dev          # http://localhost:3000 (also builds the <script> bundle)
 pnpm test         # renderer physics + parser
 pnpm typecheck
 ```
 
-## The renderer
+## Use it in your own page
+
+Everything the site draws comes from the [`graph-view`](packages/graph-view/README.md) package, which works anywhere:
+
+```html
+<script src="https://graph.isaacchacko.com/graph-view.js"></script>
+
+<graph-view arrows>
+  graph -> renderer, website
+  Sun {gold 3} -> Earth -> Moon
+</graph-view>
+```
+
+```tsx
+import { Graph } from "graph-view/react";
+
+<Graph source="A -> B, C" theme="light" onNodeClick={({ id }) => console.log(id)} />;
+```
 
 ```ts
-import { GraphRenderer } from "@graph/renderer";
+import { GraphRenderer, parseGraph } from "graph-view";
 
 const graph = new GraphRenderer(container, { arrows: true });
-graph.setData({
-  nodes: [{ id: "a" }, { id: "b", color: "tomato", size: 2 }],
-  links: [{ source: "a", target: "b" }],
-});
-graph.on("nodeClick", ({ id }) => console.log(id));
+graph.setData(parseGraph("A -> B -> C").data);
 ```
+
+Or skip code entirely: *Export & share → Copy embed code* gives an `<iframe>` of any graph (`/embed`). The [package README](packages/graph-view/README.md) has every prop, option and event.
+
+### How the renderer behaves
 
 - **Physics**: a cooling ("alpha") force simulation with Barnes–Hut repulsion, degree-weighted link springs and a centre pull, tuned through the same four knobs Obsidian exposes (center, repel, link force, link distance). It goes idle once settled, so nothing renders while the graph is still.
 - **Stable updates**: `setData` keeps the positions of surviving nodes and seeds new ones next to a linked neighbour, so editing never reshuffles the graph. A brand-new graph starts packed tight and unfolds, which untangles far better than a wide random start.
-- **Interaction**: hover a node to dim everything outside its neighbourhood, with the hovered node and its links in the accent colour. Drag from a node to draw a link (red and half-transparent until it is over another node, which emits `connect`). Double-click a node and keep holding to drag it. Clicking a link emits `linkClick` and clicking empty canvas emits `backgroundClick`. Pan, and wheel or pinch to zoom about the cursor.
+- **Interaction**: hover a node to dim everything outside its neighbourhood, with the hovered node and its links in the accent colour. In `select` mode (the default) dragging moves nodes; in `edit` mode dragging from a node draws a link (red and half-transparent until it is over another node, which emits `connect`). Double-click a node and keep holding to drag it. Clicking a link emits `linkClick` and clicking empty canvas emits `backgroundClick`. Pan, and wheel or pinch to zoom about the cursor.
 - **Labels** fade in with zoom past a threshold, and labels in the focused neighbourhood are always shown.
 - **Display**: node size grows with degree. Arrows, node size, link thickness and text size are all adjustable, and colours come from a `Theme`.
 - **Extras**: `replay()` rebuilds the graph node by node (Obsidian's "Animate"). `toPNG()` and `toSVG()` export the graph cropped to its bounds. `setInsets()` keeps framing clear of overlaid UI.

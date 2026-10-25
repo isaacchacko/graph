@@ -1,0 +1,55 @@
+{
+  "name": "graph-view",
+  "version": "0.1.0",
+  "description": "Pretty, living force-directed graphs from a few lines of text. Obsidian-style graph view as a dependency-free canvas renderer, a React component and a <graph-view> HTML tag.",
+  "license": "MIT",
+  "author": "Isaac Chacko",
+  "homepage": "https://graph.isaacchacko.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/isaacchacko/graph.git",
+    "directory": "packages/graph-view"
+  },
+  "keywords": ["graph", "force-directed", "network", "canvas", "visualization", "graph-view", "react", "web-component"],
+  "type": "module",
+  "sideEffects": ["./src/element.ts", "./src/browser.ts", "./dist/element.js", "./dist/graph-view.js"],
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./react": "./src/react.tsx",
+    "./element": "./src/element.ts"
+  },
+  "publishConfig": {
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "unpkg": "./dist/graph-view.js",
+    "jsdelivr": "./dist/graph-view.js",
+    "exports": {
+      ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+      "./react": { "types": "./dist/react.d.ts", "default": "./dist/react.js" },
+      "./element": { "types": "./dist/element.d.ts", "default": "./dist/element.js" },
+      "./graph-view.js": "./dist/graph-view.js"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "rm -rf dist && tsup",
+    "prepublishOnly": "pnpm build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "react": "19.3.0",
+    "tsup": "^8",
+    "typescript": "^5",
+    "vitest": "^3"
+  }
+}

@@ -1,19 +1,20 @@
 "use client";
 
-import type { GraphRenderer, InteractionMode, PartialOptions, Point, Selection } from "@graph/renderer";
+import type { GraphRenderer, InteractionMode, Point, Selection } from "graph-view";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { DRAWER_WIDTH_PX, GraphDrawer, type ExportKind } from "./GraphDrawer";
-import { GraphCanvas } from "./GraphCanvas";
+import { Graph } from "graph-view/react";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { appendLine, deleteLink, deleteNode, replaceNameSpans, setLinkWeight } from "@/lib/edit";
 import { fruitName } from "@/lib/fruits";
 import { SESSION_PREFIX, useHistory } from "@/lib/history";
-import { arrowLinks, formatName, parseGraph, type ParseResult, type Span } from "@/lib/parse";
+import { arrowLinks, formatName, parseGraph, type ParseResult, type Span } from "graph-view";
 import { useMediaQuery } from "@/lib/platform";
-import { decodeState, decorate, encodeState, matchesQuery, withDefaults, type AppState } from "@/lib/state";
+import { renderData, renderOptions } from "@/lib/render";
+import { decodeState, encodeState, matchesQuery, withDefaults, type AppState } from "@/lib/state";
 import { TEMPLATES, type Template } from "@/lib/templates";
 import { themeById, type AppTheme } from "@/lib/themes";
 
@@ -106,11 +107,7 @@ export function GraphStudio() {
   const parsed = useMemo(() => parseGraph(state.source), [state.source]);
 
   const data = useMemo(() => {
-    const decorated = decorate(parsed.data, state.groups, state.settings, {
-      categories: theme.palette,
-      low: theme.graph.node,
-      high: theme.graph.accent,
-    });
+    const decorated = renderData(parsed.data, state.groups, state.settings, theme);
     // Whatever is being typed into is drawn by the input on top, not the canvas.
     const nodes = decorated.nodes.map((n) => ({
       ...n,
@@ -136,10 +133,7 @@ export function GraphStudio() {
 
   const highlights = useMemo(() => highlightRanges(state.source, parsed, liveSelection), [state.source, parsed, liveSelection]);
 
-  const options = useMemo<PartialOptions>(() => {
-    const { forces, nodeSize, linkThickness, textSize, textFadeThreshold, arrows } = state.settings;
-    return { forces, nodeSize, linkThickness, textSize, textFadeThreshold, arrows, mode, theme: theme.graph };
-  }, [state.settings, theme, mode]);
+  const options = useMemo(() => renderOptions(state.settings, theme, mode), [state.settings, theme, mode]);
 
   const highlighted = useMemo(
     () => (search.trim() ? data.nodes.filter((n) => matchesQuery(n.label ?? n.id, search)).map((n) => n.id) : null),
@@ -274,13 +268,17 @@ export function GraphStudio() {
 
   // ── Drawer actions ──────────────────────────────────────────────────
 
-  const share = async () => {
-    const url = `${window.location.origin}${window.location.pathname}#${await encodeState(state)}`;
+  const share = async (kind: "link" | "embed") => {
+    const hash = await encodeState(state);
+    const text =
+      kind === "link"
+        ? `${window.location.origin}/#${hash}`
+        : `<iframe src="${window.location.origin}/embed#${hash}" width="100%" height="480" style="border:0" loading="lazy" title="graph"></iframe>`;
     try {
-      await navigator.clipboard.writeText(url);
-      toast.success("Share link copied");
+      await navigator.clipboard.writeText(text);
+      toast.success(kind === "link" ? "Share link copied" : "Embed code copied");
     } catch {
-      window.prompt("Copy this link", url);
+      window.prompt(kind === "link" ? "Copy this link" : "Copy this embed code", text);
     }
   };
 
@@ -400,7 +398,7 @@ export function GraphStudio() {
             }}
           >
             {loaded && (
-              <GraphCanvas
+              <Graph
                 className="absolute inset-0"
                 data={data}
                 options={options}

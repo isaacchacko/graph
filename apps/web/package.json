@@ -3,15 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "bundle": "pnpm --dir ../../packages/graph-view build && mkdir -p public && cp ../../packages/graph-view/dist/graph-view.js public/graph-view.js",
+    "dev": "pnpm bundle && next dev",
+    "build": "pnpm bundle && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
-    "@graph/renderer": "workspace:*",
+    "graph-view": "workspace:*",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "class-variance-authority": "^0.7.1",
