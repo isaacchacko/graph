@@ -39,6 +39,7 @@ export const DRAWER_WIDTH_PX = 360;
 export const REPO_URL = "https://github.com/isaacchacko/graph";
 
 export type ExportKind = "png" | "png-transparent" | "svg" | "copy";
+export type ShareKind = "link" | "embed-link" | "embed-code";
 
 interface Props {
   open: boolean;
@@ -62,7 +63,7 @@ interface Props {
   onAnimate: () => void;
   onZoom: (action: "in" | "out" | "fit" | "shake") => void;
   onExport: (kind: ExportKind) => void;
-  onShare: (kind: "link" | "embed") => void;
+  onShare: (kind: ShareKind) => void;
 }
 
 export function GraphDrawer(props: Props) {
@@ -303,9 +304,14 @@ export function GraphDrawer(props: Props) {
               <Button size="sm" className="w-full" onClick={() => props.onShare("link")}>
                 <LinkIcon /> Copy share link
               </Button>
-              <Button variant="outline" size="sm" className="w-full" onClick={() => props.onShare("embed")}>
-                <CodeIcon /> Copy embed code
-              </Button>
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="outline" size="sm" onClick={() => props.onShare("embed-link")}>
+                  <LinkIcon /> Copy embed link
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => props.onShare("embed-code")}>
+                  <CodeIcon /> Copy embed code
+                </Button>
+              </div>
             </Section>
           </Accordion>
         </div>

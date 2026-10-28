@@ -107,12 +107,14 @@ In SVG output, theme colours can be CSS variables, so the page's stylesheet them
 
 ### 6. Just an iframe
 
-Make a graph at [graph.isaacchacko.com](https://graph.isaacchacko.com), open *Export & share*, and press *Copy embed code*. You can also write the URL by hand:
+Make a graph at [graph.isaacchacko.com](https://graph.isaacchacko.com), open *Export & share*, and press *Copy embed code* (an `<iframe>`) or *Copy embed link* (its URL, for anything that frames links itself). You can also write the URL by hand:
 
 ```html
 <iframe src="https://graph.isaacchacko.com/embed?source=A%20-%3E%20B%2C%20C&theme=paper&arrows"
         width="100%" height="400" style="border:0"></iframe>
 ```
+
+The embed draws only the canvas, framed to fit and refitted as the iframe resizes, with a small *graph ↗* link that opens it in the editor. It never writes to storage or history, so it can't touch a visitor's own saved graph. `?theme=<id>` overrides the graph's theme (`vault`, `paper`, `midnight`, `rose`, `forest`, `blueprint`, `ink`); `?theme=auto` follows the page's light or dark, keeping the graph's theme when it suits and otherwise using Paper or Vault. `auto` reads the visitor's system setting, so it can't see a page's own theme toggle. `?no-zoom` lets the wheel scroll the page around a graph instead of zooming it.
 
 ## The language
 

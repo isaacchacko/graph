@@ -589,6 +589,8 @@ export class GraphRenderer {
     this.pixelRatio = window.devicePixelRatio || 1;
     this.canvas.width = Math.round(this.width * this.pixelRatio);
     this.canvas.height = Math.round(this.height * this.pixelRatio);
+    // Keep framing the graph as its box changes, until the user takes the camera.
+    if (this.followFit) this.cameraTarget = this.fitCamera();
     // Repaint synchronously so the canvas never flashes blank mid-resize.
     this.draw();
     this.schedule();

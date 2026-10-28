@@ -54,7 +54,7 @@ const graph = new GraphRenderer(container, { arrows: true });
 graph.setData(parseGraph("A -> B -> C").data);
 ```
 
-Or skip code entirely: *Export & share → Copy embed code* gives an `<iframe>` of any graph (`/embed`). The [package README](packages/graph-view/README.md) has every prop, option and event.
+Or skip code entirely: *Export & share → Copy embed code* gives an `<iframe>` of any graph (`/embed`; add `?theme=auto` to follow the page's light/dark). The [package README](packages/graph-view/README.md) has every prop, option and event.
 
 ### How the renderer behaves
 

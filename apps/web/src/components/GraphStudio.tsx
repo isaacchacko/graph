@@ -3,11 +3,12 @@
 import type { GraphRenderer, InteractionMode, Point, Selection } from "@isaacchacko/graph";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { DRAWER_WIDTH_PX, GraphDrawer, type ExportKind } from "./GraphDrawer";
+import { DRAWER_WIDTH_PX, GraphDrawer, type ExportKind, type ShareKind } from "./GraphDrawer";
 import { Graph } from "@isaacchacko/graph/react";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { embedCode, embedUrl, shareUrl } from "@/lib/embed";
 import { appendLine, deleteLink, deleteNode, replaceNameSpans, setLinkWeight } from "@/lib/edit";
 import { fruitName } from "@/lib/fruits";
 import { SESSION_PREFIX, useHistory } from "@/lib/history";
@@ -268,17 +269,17 @@ export function GraphStudio() {
 
   // ── Drawer actions ──────────────────────────────────────────────────
 
-  const share = async (kind: "link" | "embed") => {
+  const share = async (kind: ShareKind) => {
     const hash = await encodeState(state);
+    const { origin } = window.location;
     const text =
-      kind === "link"
-        ? `${window.location.origin}/#${hash}`
-        : `<iframe src="${window.location.origin}/embed#${hash}" width="100%" height="480" style="border:0" loading="lazy" title="graph"></iframe>`;
+      kind === "link" ? shareUrl(origin, hash) : kind === "embed-link" ? embedUrl(origin, hash) : embedCode(embedUrl(origin, hash));
+    const what = { link: "Share link", "embed-link": "Embed link", "embed-code": "Embed code" }[kind];
     try {
       await navigator.clipboard.writeText(text);
-      toast.success(kind === "link" ? "Share link copied" : "Embed code copied");
+      toast.success(`${what} copied`);
     } catch {
-      window.prompt(kind === "link" ? "Copy this link" : "Copy this embed code", text);
+      window.prompt(`Copy this ${what.toLowerCase()}`, text);
     }
   };
 

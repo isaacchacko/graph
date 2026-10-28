@@ -132,6 +132,10 @@
     @apply font-sans;
     overscroll-behavior: none;
   }
+  /* An embed hands scrolls it doesn't use to the page around it. */
+  html:has([data-embed]) {
+    overscroll-behavior: auto;
+  }
 }
 /* Thin, square, theme-tinted scrollbars. */
 @supports (scrollbar-color: auto) {
