@@ -145,6 +145,7 @@ The embed draws only the canvas, framed to fit and refitted as the iframe resize
 | `toPNG(opts?)`, `toSVG(opts?)` | exports cropped to the graph |
 | `settle(data, forces?)`, `renderSvg(data, options?, exportOptions?)` | functions, not methods: layout and SVG without a DOM |
 | `setInsets({ top, right, bottom, left })` | keeps framing clear of overlaid UI |
+| `createModeToolbar(renderer, { onChange?, keys?, tips? })` | a function: the site's select/edit toggle without React; place its `element` over the graph. S and E switch modes unless `keys: false` |
 | `destroy()` | removes the canvas and listeners |
 
 **Options**: `theme` (`background`, `node`, `link`, `text`, `accent`, `fontFamily`), `forces` (`centerForce`, `repelForce`, `linkForce`, `linkDistance`), `nodeSize`, `linkThickness`, `textSize`, `arrows`, `mode`, `zoom`, `textFadeThreshold`, `dimOpacity`.
