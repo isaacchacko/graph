@@ -1,4 +1,5 @@
 export { GraphRenderer, type Insets } from "./renderer";
+export { createModeToolbar, type ModeToolbar, type ModeToolbarOptions } from "./toolbar";
 export { settle, renderSvg } from "./headless";
 export { ForceSimulation, type SimNode, type SimLink } from "./simulation";
 export { DEFAULT_FORCES, DEFAULT_OPTIONS, DARK_THEME, LIGHT_THEME, RENDERER_EVENTS, resolveTheme, type ThemeInput } from "./defaults";
