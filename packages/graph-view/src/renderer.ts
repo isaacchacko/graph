@@ -50,6 +50,9 @@ export class GraphRenderer {
   private sim: ForceSimulation<SceneNode>;
   private nodes: SceneNode[] = [];
   private links: SceneLink[] = [];
+  /** The hidden links, as a key that changes whenever they do. */
+  private pullKeys = "";
+  private icons = new Map<string, HTMLImageElement>();
   private nodeById = new Map<string, SceneNode>();
   private neighbors = new Map<SceneNode, Set<SceneNode>>();
   private data: GraphData = { nodes: [], links: [] };
@@ -166,6 +169,17 @@ export class GraphRenderer {
     this.schedule();
   }
 
+  /** Smoothly centres the camera on a node, keeping the zoom. */
+  panTo(id: string): void {
+    const n = this.nodeById.get(id);
+    if (!n) return;
+    this.followFit = false;
+    const { scale } = this.cameraTarget ?? this.camera;
+    const { top, right, bottom, left } = this.insets;
+    this.cameraTarget = { x: n.x - (left - right) / 2 / scale, y: n.y - (top - bottom) / 2 / scale, scale };
+    this.schedule();
+  }
+
   /** Shakes the layout loose from where it settled. */
   reheat(alpha = 1): void {
     this.sim.reheat(alpha);
@@ -242,30 +256,38 @@ export class GraphRenderer {
     const worldH = box.bottom - box.top + padding * 2;
     const scale = Math.min(options.scale ?? 2, (options.maxSize ?? 4096) / Math.max(worldW, worldH));
 
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.ceil(worldW * scale);
-    canvas.height = Math.ceil(worldH * scale);
-    const ctx = canvas.getContext("2d")!;
     const theme = { ...this.options.theme };
     if (options.transparent) theme.background = null;
-    // Links must point at the copied nodes: drawScene looks up each target's radius by identity.
-    const settled = new Map(this.nodes.map((n) => [n, { ...n, fade: 1, accent: 0, emphasis: 0, appear: 1 }]));
-    drawScene(
-      ctx,
-      [...settled.values()],
-      this.links.map((l) => ({ ...l, source: settled.get(l.source)!, target: settled.get(l.target)!, fade: 1, accent: 0 })),
-      { ...this.options, theme },
-      {
-        camera: { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2, scale: 1 },
-        width: worldW,
-        height: worldH,
-        pixelRatio: scale,
-      },
-      { labelOpacity: options.labels === false ? 0 : 1 },
-    );
-    return new Promise((resolve, reject) =>
-      canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("PNG encoding failed"))), "image/png"),
-    );
+    // A cross-origin icon taints the canvas and its PNG can't be read, so those exports drop the icons.
+    const render = (icons: boolean) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(worldW * scale);
+      canvas.height = Math.ceil(worldH * scale);
+      // Links must point at the copied nodes: drawScene looks up each target's radius by identity.
+      const settled = new Map(this.nodes.map((n) => [n, { ...n, icon: icons ? n.icon : null, fade: 1, accent: 0, emphasis: 0, appear: 1 }]));
+      drawScene(
+        canvas.getContext("2d")!,
+        [...settled.values()],
+        this.links.map((l) => ({ ...l, source: settled.get(l.source)!, target: settled.get(l.target)!, fade: 1, accent: 0 })),
+        { ...this.options, theme },
+        {
+          camera: { x: (box.left + box.right) / 2, y: (box.top + box.bottom) / 2, scale: 1 },
+          width: worldW,
+          height: worldH,
+          pixelRatio: scale,
+        },
+        { labelOpacity: options.labels === false ? 0 : 1 },
+      );
+      return new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("PNG encoding failed"))), "image/png"),
+      );
+    };
+    try {
+      return await render(true);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "SecurityError") return render(false);
+      throw error;
+    }
   }
 
   toSVG(options: ExportOptions = {}): string {
@@ -307,6 +329,7 @@ export class GraphRenderer {
       node.label = input.label ?? input.id;
       node.color = input.color ?? null;
       node.sizeMul = input.size ?? 1;
+      node.icon = input.icon ? this.loadIcon(input.icon) : null;
       byId.set(input.id, node);
       nodes.push(node);
     }
@@ -315,6 +338,7 @@ export class GraphRenderer {
     const startingOver = nodes.length > 0 && fresh.length === nodes.length;
 
     const links: SceneLink[] = [];
+    const pulls: SceneLink[] = [];
     const seen = new Set<string>();
     for (const input of data.links) {
       const source = byId.get(input.source);
@@ -324,7 +348,7 @@ export class GraphRenderer {
       if (seen.has(key)) continue;
       seen.add(key);
       const old = previousLinks.get(key);
-      links.push({
+      (input.hidden ? pulls : links).push({
         source,
         target,
         label: input.label ?? "",
@@ -346,18 +370,39 @@ export class GraphRenderer {
     this.neighbors = neighbors;
     if (this.hovered && !byId.has(this.hovered.id)) this.hovered = null;
 
+    const pullKeys = pulls.map((l) => `${linkKey(l.source.id, l.target.id)}:${l.length}`).join();
+    const repulled = pullKeys !== this.pullKeys;
+    this.pullKeys = pullKeys;
     const restructured =
+      repulled ||
       fresh.length > 0 ||
       nodes.length !== previous.size ||
       links.length !== previousLinks.size ||
       links.some((l) => previousLinks.get(linkKey(l.source.id, l.target.id))?.length !== l.length);
 
     this.placeNewNodes(fresh, startingOver);
-    this.sim.setGraph(nodes, links);
+    this.sim.setGraph(nodes, links.concat(pulls));
     if (fresh.length > 0) this.sim.reheat(startingOver ? 1 : 0.5);
     else if (restructured) this.sim.reheat(0.3);
     if (startingOver) this.followFit = true;
     this.schedule();
+  }
+
+  /** One image per list of sources, shared by every node that names it; each source is tried in turn. */
+  private loadIcon(icon: string | string[]): HTMLImageElement {
+    const sources = typeof icon === "string" ? [icon] : icon;
+    const key = sources.join("\n");
+    let img = this.icons.get(key);
+    if (img) return img;
+    img = new Image();
+    let next = 0;
+    img.onload = () => this.schedule();
+    img.onerror = () => {
+      if (next < sources.length) img!.src = sources[next++];
+    };
+    img.src = sources[next++];
+    this.icons.set(key, img);
+    return img;
   }
 
   /** Seeds new nodes next to an already-placed neighbour, or on a spiral. */

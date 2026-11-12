@@ -92,6 +92,20 @@ export function buildSvg(
   }
   out.push("</g>");
 
+  const icons = nodes.filter((n) => n.icon?.complete && n.icon.naturalWidth);
+  if (icons.length) {
+    out.push("<g>");
+    for (const n of icons) {
+      const r = radius.get(n)!;
+      const inner = r * 0.84;
+      const side = inner * 1.35;
+      const plate = theme.background && !transparent ? ` ${paint("fill", theme.background)}` : ` fill="none"`;
+      out.push(`<circle cx="${f(n.x)}" cy="${f(n.y)}" r="${f(inner)}"${plate}/>`);
+      out.push(`<image href="${escape(n.icon!.currentSrc || n.icon!.src)}" x="${f(n.x - side / 2)}" y="${f(n.y - side / 2)}" width="${f(side)}" height="${f(side)}"/>`);
+    }
+    out.push("</g>");
+  }
+
   if (labels) {
     out.push(
       `<g ${paint("fill", theme.text)} font-family="${escape(theme.fontFamily)}" font-size="${f(fontSize)}" text-anchor="middle" dominant-baseline="hanging">`,

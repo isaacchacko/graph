@@ -7,6 +7,8 @@ export interface SceneNode extends SimNode {
   label: string;
   color: string | null;
   sizeMul: number;
+  /** Drawn inside the node once it has loaded. */
+  icon: HTMLImageElement | null;
   /** Opacity, animated toward 1 or `dimOpacity`. */
   fade: number;
   /** 0–1 blend toward the accent color. */
@@ -54,6 +56,8 @@ const BASE_FONT = 12;
 const MIN_FOCUSED_FONT_PX = 11;
 const ALPHA_STEPS = 20;
 const ACCENT_STEPS = 8;
+/** Below this on-screen radius an icon would be a smudge, so the node stays a dot. */
+const MIN_ICON_RADIUS_PX = 5;
 
 /** A node not yet drawn: unplaced (NaN) unless the input gives a position, and still to grow in. */
 export function newSceneNode(input: GraphNodeInput): SceneNode {
@@ -62,6 +66,7 @@ export function newSceneNode(input: GraphNodeInput): SceneNode {
     label: input.label ?? input.id,
     color: input.color ?? null,
     sizeMul: input.size ?? 1,
+    icon: null,
     x: input.x ?? NaN,
     y: input.y ?? NaN,
     vx: 0,
@@ -160,7 +165,7 @@ export function drawScene(
   drawLinks(ctx, links, radii, indexOf, options, camera.scale, bounds);
   if (extras.connectPreview) drawConnectPreview(ctx, extras.connectPreview, options, camera.scale);
   drawLinkLabels(ctx, links, options, camera.scale, bounds, extras.labelOpacity);
-  drawNodes(ctx, nodes, radii, options, bounds);
+  drawNodes(ctx, nodes, radii, options, bounds, camera.scale);
   if (extras.selectedNodes?.length) {
     ctx.strokeStyle = options.theme.accent;
     ctx.lineWidth = 2 / camera.scale;
@@ -335,9 +340,11 @@ function drawNodes(
   radii: Float32Array,
   options: RendererOptions,
   b: Bounds,
+  scale: number,
 ): void {
   const { theme } = options;
   const buckets = new Map<string, number[]>();
+  const icons: number[] = [];
   nodes.forEach((n, i) => {
     const r = radii[i];
     if (r <= 0 || n.x + r < b.left || n.x - r > b.right || n.y + r < b.top || n.y - r > b.bottom) return;
@@ -348,6 +355,7 @@ function drawNodes(
     let bucket = buckets.get(key);
     if (!bucket) buckets.set(key, (bucket = []));
     bucket.push(i);
+    if (n.icon?.complete && n.icon.naturalWidth && r * scale >= MIN_ICON_RADIUS_PX) icons.push(i);
   });
 
   for (const [key, bucket] of buckets) {
@@ -361,6 +369,27 @@ function drawNodes(
       ctx.arc(n.x, n.y, radii[i], 0, Math.PI * 2);
     }
     ctx.fill();
+  }
+
+  // An icon sits on a plate of the background, inside a ring of the node's color.
+  for (const i of icons) {
+    const n = nodes[i];
+    const r = radii[i];
+    const inner = r - Math.max(1.5 / scale, r * 0.16);
+    ctx.globalAlpha = Math.round(n.fade * ALPHA_STEPS) / ALPHA_STEPS;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, inner, 0, Math.PI * 2);
+    ctx.clip();
+    if (theme.background) {
+      ctx.fillStyle = theme.background;
+      ctx.fill();
+    } else {
+      ctx.clearRect(n.x - inner, n.y - inner, inner * 2, inner * 2);
+    }
+    const side = inner * 1.35;
+    ctx.drawImage(n.icon!, n.x - side / 2, n.y - side / 2, side, side);
+    ctx.restore();
   }
   ctx.globalAlpha = 1;
 }
