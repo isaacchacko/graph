@@ -1,3 +1,4 @@
+import { iconPlate } from "./color";
 import { nodeRadius, type SceneLink, type SceneNode } from "./scene";
 import type { RendererOptions } from "./types";
 
@@ -99,7 +100,7 @@ export function buildSvg(
       const r = radius.get(n)!;
       const inner = r * 0.84;
       const side = inner * 1.35;
-      const plate = theme.background && !transparent ? ` ${paint("fill", theme.background)}` : ` fill="none"`;
+      const plate = theme.background && !transparent ? ` ${paint("fill", iconPlate(n.icon!, theme.background))}` : ` fill="none"`;
       out.push(`<circle cx="${f(n.x)}" cy="${f(n.y)}" r="${f(inner)}"${plate}/>`);
       out.push(`<image href="${escape(n.icon!.currentSrc || n.icon!.src)}" x="${f(n.x - side / 2)}" y="${f(n.y - side / 2)}" width="${f(side)}" height="${f(side)}"/>`);
     }
