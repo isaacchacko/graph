@@ -1,4 +1,4 @@
-import { mixColors } from "./color";
+import { iconPlate, mixColors } from "./color";
 import type { SimLink, SimNode } from "./simulation";
 import type { GraphNodeInput, Point, RendererOptions } from "./types";
 
@@ -371,7 +371,7 @@ function drawNodes(
     ctx.fill();
   }
 
-  // An icon sits on a plate of the background, inside a ring of the node's color.
+  // An icon sits on a plate of the background (light under a dark icon), inside a ring of the node's color.
   for (const i of icons) {
     const n = nodes[i];
     const r = radii[i];
@@ -382,7 +382,7 @@ function drawNodes(
     ctx.arc(n.x, n.y, inner, 0, Math.PI * 2);
     ctx.clip();
     if (theme.background) {
-      ctx.fillStyle = theme.background;
+      ctx.fillStyle = iconPlate(n.icon!, theme.background);
       ctx.fill();
     } else {
       ctx.clearRect(n.x - inner, n.y - inner, inner * 2, inner * 2);

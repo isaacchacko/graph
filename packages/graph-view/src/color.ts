@@ -48,3 +48,41 @@ function parseWithCanvas(color: string): RGB | null {
   const normalized = String(probe.fillStyle);
   return parseHex(normalized) ?? parseRgbFunction(normalized);
 }
+
+/** Perceived brightness of a color, 0 (black) to 1 (white). */
+export function brightness([r, g, b]: RGB): number {
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
+const imageBrightnesses = new WeakMap<HTMLImageElement, number | null>();
+
+/** Mean brightness of an image's visible pixels, or null when it is cross-origin and its pixels can't be read. */
+export function imageBrightness(img: HTMLImageElement): number | null {
+  if (imageBrightnesses.has(img)) return imageBrightnesses.get(img)!;
+  let result: number | null = null;
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 16;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+    ctx.drawImage(img, 0, 0, 16, 16);
+    const { data } = ctx.getImageData(0, 0, 16, 16);
+    let sum = 0;
+    let weight = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const alpha = data[i + 3] / 255;
+      sum += brightness([data[i], data[i + 1], data[i + 2]]) * alpha;
+      weight += alpha;
+    }
+    if (weight > 0) result = sum / weight;
+  } catch {
+    // A tainted canvas: the icon stays on the background plate.
+  }
+  imageBrightnesses.set(img, result);
+  return result;
+}
+
+/** The plate behind an icon: the background, or a light one when a dark icon would vanish into a dark background. */
+export function iconPlate(icon: HTMLImageElement, background: string): string {
+  if (brightness(parseColor(background)) >= 0.5) return background;
+  return (imageBrightness(icon) ?? 1) < 0.3 ? "#ffffff" : background;
+}

@@ -150,7 +150,7 @@ The embed draws only the canvas, framed to fit and refitted as the iframe resize
 
 **Options**: `theme` (`background`, `node`, `link`, `text`, `accent`, `fontFamily`), `forces` (`centerForce`, `repelForce`, `linkForce`, `linkDistance`), `nodeSize`, `linkThickness`, `textSize`, `arrows`, `mode`, `zoom`, `textFadeThreshold`, `dimOpacity`.
 
-**Node fields**: `id`, `label`, `color`, `size`, `x`, `y`, `icon` (an image URL, or several to try in turn, drawn inside the node ringed in its color). **Link fields**: `source`, `target`, `label`, `length`, `hidden` (pulls its ends together without being drawn).
+**Node fields**: `id`, `label`, `color`, `size`, `x`, `y`, `icon` (an image URL, or several to try in turn, drawn inside the node ringed in its color; a dark icon on a dark theme gets a light plate when its pixels are readable, i.e. same-origin or CORS). **Link fields**: `source`, `target`, `label`, `length`, `hidden` (pulls its ends together without being drawn).
 
 **Events**: `nodeClick`, `nodeDoubleClick`, `nodeHover`, `linkClick`, `backgroundClick`, `backgroundDoubleClick`, `connect`, `boxSelect`, `nodeContextMenu`, `linkContextMenu`, `zoom`.
 
