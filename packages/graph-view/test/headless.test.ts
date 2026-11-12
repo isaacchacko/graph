@@ -36,6 +36,11 @@ describe("renderSvg", () => {
     expect(svg).toContain('fill="gold"');
   });
 
+  it("lays out hidden links without drawing them", () => {
+    const svg = renderSvg({ nodes: [{ id: "a" }, { id: "b" }, { id: "c" }], links: [{ source: "a", target: "b" }, { source: "b", target: "c", hidden: true }] });
+    expect(svg.match(/<line /g)).toHaveLength(1);
+  });
+
   it("keeps given positions", () => {
     const svg = renderSvg({ nodes: [{ id: "a", x: 10, y: 20 }], links: [] });
     expect(svg).toContain('cx="10" cy="20"');

@@ -39,19 +39,20 @@ export function settle(data: GraphData, forces: Partial<ForceSettings> = {}): Gr
 export function renderSvg(data: GraphData, options: PartialOptions = {}, exportOptions: ExportOptions = {}): string {
   const merged = mergeOptions(DEFAULT_OPTIONS, options);
   const placed = data.nodes.every((n) => n.x !== undefined && n.y !== undefined) ? data : settle(data, merged.forces);
-  const { nodes, links } = buildScene(placed);
+  const { nodes, links, drawn } = buildScene(placed);
   for (const { source, target } of links) {
     source.degree++;
     target.degree++;
   }
-  return buildSvg(nodes, links, merged, sceneBounds(nodes, merged), exportOptions);
+  return buildSvg(nodes, drawn, merged, sceneBounds(nodes, merged), exportOptions);
 }
 
-/** Scene nodes and links for `data`, deduplicated the way the renderer does it. */
-function buildScene(data: GraphData): { nodes: SceneNode[]; links: SceneLink[] } {
+/** Scene nodes and links for `data`, deduplicated the way the renderer does it; `drawn` leaves out hidden links. */
+function buildScene(data: GraphData): { nodes: SceneNode[]; links: SceneLink[]; drawn: SceneLink[] } {
   const byId = new Map<string, SceneNode>();
   for (const input of data.nodes) if (!byId.has(input.id)) byId.set(input.id, newSceneNode(input));
   const links: SceneLink[] = [];
+  const drawn: SceneLink[] = [];
   const seen = new Set<string>();
   for (const input of data.links) {
     const source = byId.get(input.source);
@@ -59,7 +60,9 @@ function buildScene(data: GraphData): { nodes: SceneNode[]; links: SceneLink[] }
     const key = `${input.source}\u0000${input.target}`;
     if (!source || !target || seen.has(key)) continue;
     seen.add(key);
-    links.push({ source, target, label: input.label ?? "", length: input.length ?? 1, fade: 1, accent: 0 });
+    const link = { source, target, label: input.label ?? "", length: input.length ?? 1, fade: 1, accent: 0 };
+    links.push(link);
+    if (!input.hidden) drawn.push(link);
   }
-  return { nodes: [...byId.values()], links };
+  return { nodes: [...byId.values()], links, drawn };
 }

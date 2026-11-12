@@ -138,7 +138,7 @@ The embed draws only the canvas, framed to fit and refitted as the iframe resize
 | `setData({ nodes, links })` | keeps positions of nodes that survive, seeds new ones next to a neighbour |
 | `setOptions(partial)` | any option below; forces and theme merge |
 | `on(event, fn)` | returns an unsubscribe function |
-| `zoomToFit()`, `zoomBy(factor)` | camera |
+| `zoomToFit()`, `zoomBy(factor)`, `panTo(id)` | camera |
 | `replay(ms?)` | rebuilds the graph node by node |
 | `reheat(alpha?)` | shakes the layout loose |
 | `setHighlighted(ids \| null)`, `setSelection(sel)` | emphasis |
@@ -150,7 +150,7 @@ The embed draws only the canvas, framed to fit and refitted as the iframe resize
 
 **Options**: `theme` (`background`, `node`, `link`, `text`, `accent`, `fontFamily`), `forces` (`centerForce`, `repelForce`, `linkForce`, `linkDistance`), `nodeSize`, `linkThickness`, `textSize`, `arrows`, `mode`, `zoom`, `textFadeThreshold`, `dimOpacity`.
 
-**Node fields**: `id`, `label`, `color`, `size`, `x`, `y`. **Link fields**: `source`, `target`, `label`, `length`.
+**Node fields**: `id`, `label`, `color`, `size`, `x`, `y`, `icon` (an image URL, or several to try in turn, drawn inside the node ringed in its color). **Link fields**: `source`, `target`, `label`, `length`, `hidden` (pulls its ends together without being drawn).
 
 **Events**: `nodeClick`, `nodeDoubleClick`, `nodeHover`, `linkClick`, `backgroundClick`, `backgroundDoubleClick`, `connect`, `boxSelect`, `nodeContextMenu`, `linkContextMenu`, `zoom`.
 

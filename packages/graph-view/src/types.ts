@@ -5,6 +5,11 @@ export interface GraphNodeInput {
   color?: string;
   /** Multiplies the node's computed radius. */
   size?: number;
+  /**
+   * An image drawn inside the node, ringed in its color: a URL, or several to
+   * try in order until one loads. The node stays a plain dot until one does.
+   */
+  icon?: string | string[];
   /** Where a new node first appears, in world units. Ignored once placed. */
   x?: number;
   y?: number;
@@ -17,6 +22,8 @@ export interface GraphLinkInput {
   label?: string;
   /** Multiplies the resting length of this link. */
   length?: number;
+  /** Pulls its ends together in the layout without being drawn, hovered or clicked. */
+  hidden?: boolean;
 }
 
 export type Selection =
